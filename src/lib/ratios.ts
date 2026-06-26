@@ -49,7 +49,7 @@ export type Statement = {
 const safeDiv = (a: number | null | undefined, b: number | null | undefined) =>
   a == null || b == null || b === 0 ? null : a / b;
 
-const cagr = (start?: number, end?: number, years?: number) => {
+const cagr = (start: number | null | undefined, end: number | null | undefined, years?: number) => {
   if (start == null || end == null || !years || years <= 0 || start <= 0 || end <= 0) return null;
   return Math.pow(end / start, 1 / years) - 1;
 };
