@@ -19,14 +19,11 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
       { name: "description", content: "Your covered companies and active research notes." },
     ],
   }),
-  loader: async ({ context }) => {
-    const fn = useServerFn(listCompanies);
-    void fn;
-    return context.queryClient.ensureQueryData({
+  loader: async ({ context }) =>
+    context.queryClient.ensureQueryData({
       queryKey: ["companies"],
       queryFn: () => listCompanies(),
-    });
-  },
+    }),
   component: Dashboard,
 });
 
