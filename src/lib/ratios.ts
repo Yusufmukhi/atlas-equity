@@ -46,7 +46,7 @@ export type Statement = {
   data: StatementData;
 };
 
-const safeDiv = (a?: number, b?: number) =>
+const safeDiv = (a: number | null | undefined, b: number | null | undefined) =>
   a == null || b == null || b === 0 ? null : a / b;
 
 const cagr = (start?: number, end?: number, years?: number) => {
