@@ -16,6 +16,7 @@ import { Route as AuthenticatedUploadRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedCompanyRouteImport } from './routes/_authenticated/company'
 import { Route as AuthenticatedCompanySymbolRouteImport } from './routes/_authenticated/company.$symbol'
+import { Route as AuthenticatedCompanySymbolReportRouteImport } from './routes/_authenticated/company.$symbol.report'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -52,6 +53,12 @@ const AuthenticatedCompanySymbolRoute =
     path: '/$symbol',
     getParentRoute: () => AuthenticatedCompanyRoute,
   } as any)
+const AuthenticatedCompanySymbolReportRoute =
+  AuthenticatedCompanySymbolReportRouteImport.update({
+    id: '/report',
+    path: '/report',
+    getParentRoute: () => AuthenticatedCompanySymbolRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -59,7 +66,8 @@ export interface FileRoutesByFullPath {
   '/company': typeof AuthenticatedCompanyRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/upload': typeof AuthenticatedUploadRoute
-  '/company/$symbol': typeof AuthenticatedCompanySymbolRoute
+  '/company/$symbol': typeof AuthenticatedCompanySymbolRouteWithChildren
+  '/company/$symbol/report': typeof AuthenticatedCompanySymbolReportRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -67,7 +75,8 @@ export interface FileRoutesByTo {
   '/company': typeof AuthenticatedCompanyRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/upload': typeof AuthenticatedUploadRoute
-  '/company/$symbol': typeof AuthenticatedCompanySymbolRoute
+  '/company/$symbol': typeof AuthenticatedCompanySymbolRouteWithChildren
+  '/company/$symbol/report': typeof AuthenticatedCompanySymbolReportRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -77,7 +86,8 @@ export interface FileRoutesById {
   '/_authenticated/company': typeof AuthenticatedCompanyRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/upload': typeof AuthenticatedUploadRoute
-  '/_authenticated/company/$symbol': typeof AuthenticatedCompanySymbolRoute
+  '/_authenticated/company/$symbol': typeof AuthenticatedCompanySymbolRouteWithChildren
+  '/_authenticated/company/$symbol/report': typeof AuthenticatedCompanySymbolReportRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -88,8 +98,16 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/upload'
     | '/company/$symbol'
+    | '/company/$symbol/report'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/company' | '/dashboard' | '/upload' | '/company/$symbol'
+  to:
+    | '/'
+    | '/auth'
+    | '/company'
+    | '/dashboard'
+    | '/upload'
+    | '/company/$symbol'
+    | '/company/$symbol/report'
   id:
     | '__root__'
     | '/'
@@ -99,6 +117,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/upload'
     | '/_authenticated/company/$symbol'
+    | '/_authenticated/company/$symbol/report'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -158,15 +177,37 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCompanySymbolRouteImport
       parentRoute: typeof AuthenticatedCompanyRoute
     }
+    '/_authenticated/company/$symbol/report': {
+      id: '/_authenticated/company/$symbol/report'
+      path: '/report'
+      fullPath: '/company/$symbol/report'
+      preLoaderRoute: typeof AuthenticatedCompanySymbolReportRouteImport
+      parentRoute: typeof AuthenticatedCompanySymbolRoute
+    }
   }
 }
 
+interface AuthenticatedCompanySymbolRouteChildren {
+  AuthenticatedCompanySymbolReportRoute: typeof AuthenticatedCompanySymbolReportRoute
+}
+
+const AuthenticatedCompanySymbolRouteChildren: AuthenticatedCompanySymbolRouteChildren =
+  {
+    AuthenticatedCompanySymbolReportRoute:
+      AuthenticatedCompanySymbolReportRoute,
+  }
+
+const AuthenticatedCompanySymbolRouteWithChildren =
+  AuthenticatedCompanySymbolRoute._addFileChildren(
+    AuthenticatedCompanySymbolRouteChildren,
+  )
+
 interface AuthenticatedCompanyRouteChildren {
-  AuthenticatedCompanySymbolRoute: typeof AuthenticatedCompanySymbolRoute
+  AuthenticatedCompanySymbolRoute: typeof AuthenticatedCompanySymbolRouteWithChildren
 }
 
 const AuthenticatedCompanyRouteChildren: AuthenticatedCompanyRouteChildren = {
-  AuthenticatedCompanySymbolRoute: AuthenticatedCompanySymbolRoute,
+  AuthenticatedCompanySymbolRoute: AuthenticatedCompanySymbolRouteWithChildren,
 }
 
 const AuthenticatedCompanyRouteWithChildren =
