@@ -93,7 +93,7 @@ export const upsertFinancialStatement = createServerFn({ method: "POST" })
     const { data: row, error } = await context.supabase
       .from("financial_statements")
       .upsert(
-        { ...data, user_id: context.userId },
+        { ...data, data: data.data as never, user_id: context.userId },
         { onConflict: "company_id,period_type,period_end" },
       )
       .select()
