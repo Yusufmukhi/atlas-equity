@@ -56,17 +56,21 @@ const FIELDS = [
 
 // ─── Screener Excel Parser ────────────────────────────────────────────────────
 
-type ParsedYear = {
+type ParsedPeriod = {
+  period_type: "annual" | "quarterly";
   fiscal_year: number;
-  period_end: string;
+  period_end: string; // YYYY-MM-DD
+  label: string;      // e.g. "FY2026" or "Q3 FY26"
   data: Record<string, Record<string, number>>;
 };
 
 type ParseResult = {
   company_name: string;
-  years: ParsedYear[];
+  years: ParsedPeriod[];     // annual rows
+  quarters: ParsedPeriod[];  // quarterly rows
   warnings: string[];
 };
+
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
