@@ -362,6 +362,7 @@ function UploadPage() {
             <TabsContent value="financials" className="mt-4">
               <FinancialForm
                 companyId={selected}
+                companySymbol={companies.find((c) => c.id === selected)?.symbol ?? ""}
                 onSubmit={async (payload) => {
                   await upFin({ data: payload });
                   qc.invalidateQueries({ queryKey: ["company"] });
@@ -369,6 +370,7 @@ function UploadPage() {
                 }}
               />
             </TabsContent>
+
 
             {/* ── Document Tab ── */}
             <TabsContent value="document" className="mt-4">
