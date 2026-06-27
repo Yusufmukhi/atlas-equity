@@ -1,11 +1,11 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import { TerminalShell } from "@/components/TerminalShell";
-import { listCompanies, upsertFinancialStatement } from "@/lib/companies.functions";
+import { listCompanies, upsertFinancialStatement, getCompanyBySymbol } from "@/lib/companies.functions";
 import { uploadDocument } from "@/lib/documents.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Loader2, UploadCloud, FileSpreadsheet, CheckCircle2, AlertCircle, X } from "lucide-react";
+
 
 const search = z.object({ company: z.string().optional() });
 
