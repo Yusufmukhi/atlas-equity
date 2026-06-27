@@ -227,10 +227,12 @@ function CompanyPage() {
             <Tabs defaultValue="ratios" className="w-full">
               <TabsList className="bg-card border border-border">
                 <TabsTrigger value="ratios">Ratios</TabsTrigger>
+                <TabsTrigger value="quarterly">Quarterly ({quarterly.length})</TabsTrigger>
                 <TabsTrigger value="agents">AI Agents</TabsTrigger>
                 <TabsTrigger value="dcf">DCF</TabsTrigger>
                 <TabsTrigger value="docs">Documents ({documents.length})</TabsTrigger>
               </TabsList>
+
 
               <TabsContent value="ratios" className="mt-3">
                 <div className="panel overflow-x-auto">
