@@ -705,34 +705,75 @@ function PreviewRow({
       {years.map((y) => {
         const v = accessor(y);
         return (
-          <td key={y.fiscal_year} className={`p-2 text-right ${v === undefined ? "text-muted-foreground/40" : ""}`}>
+          <td key={y.period_end} className={`p-2 text-right ${v === undefined ? "text-muted-foreground/40" : ""}`}>
             {v !== undefined ? v.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—"}
           </td>
         );
       })}
-      <td />
     </tr>
   );
 }
 
-// ─── Manual Financial Form (unchanged) ───────────────────────────────────────
+// ─── Manual Financial Form — prefills from existing saved data ────────────────
 
 function FinancialForm({
   companyId,
+  companySymbol,
   onSubmit,
 }: {
   companyId: string;
+  companySymbol: string;
   onSubmit: (p: {
     company_id: string;
-    period_type: "annual";
+    period_type: "annual" | "quarterly";
     fiscal_year: number;
     period_end: string;
     data: Record<string, unknown>;
   }) => Promise<void>;
 }) {
-  const [fy, setFy]   = useState<number>(new Date().getFullYear());
+  const getFn = useServerFn(getCompanyBySymbol);
+  const { data: companyData } = useQuery({
+    queryKey: ["company", companySymbol],
+    queryFn: () => getFn({ data: { symbol: companySymbol } }),
+    enabled: !!companySymbol,
+  });
+
+  const [periodType, setPeriodType] = useState<"annual" | "quarterly">("annual");
+  const [fy, setFy] = useState<number>(new Date().getFullYear());
+  const [periodEnd, setPeriodEnd] = useState<string>(`${new Date().getFullYear()}-03-31`);
   const [vals, setVals] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+
+  // Update default period_end whenever fy changes (annual = March end)
+  useEffect(() => {
+    if (periodType === "annual") setPeriodEnd(`${fy}-03-31`);
+  }, [fy, periodType]);
+
+  // Find existing statement for current selection
+  const existing = useMemo(() => {
+    if (!companyData) return null;
+    return (
+      companyData.statements.find(
+        (s) => s.period_type === periodType && s.period_end === periodEnd,
+      ) ?? null
+    );
+  }, [companyData, periodType, periodEnd]);
+
+  // Pre-fill values when an existing statement is found (or clear otherwise)
+  useEffect(() => {
+    if (!existing) {
+      setVals({});
+      return;
+    }
+    const next: Record<string, string> = {};
+    const data = (existing.data ?? {}) as Record<string, Record<string, number>>;
+    for (const f of FIELDS) {
+      const [g, k] = f.key.split(".");
+      const v = data[g]?.[k];
+      if (v !== undefined && v !== null) next[f.key] = String(v);
+    }
+    setVals(next);
+  }, [existing]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -748,8 +789,13 @@ function FinancialForm({
         data[group] ??= {};
         data[group][key] = n;
       }
-      await onSubmit({ company_id: companyId, period_type: "annual", fiscal_year: fy, period_end: `${fy}-03-31`, data });
-      setVals({});
+      await onSubmit({
+        company_id: companyId,
+        period_type: periodType,
+        fiscal_year: fy,
+        period_end: periodEnd,
+        data,
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -760,19 +806,81 @@ function FinancialForm({
   const grouped: Record<string, typeof FIELDS[number][]> = { "P&L": [], BS: [], CF: [] };
   for (const f of FIELDS) grouped[f.group].push(f);
 
+  // Existing periods list (so user knows what's saved)
+  const savedPeriods = (companyData?.statements ?? [])
+    .slice()
+    .sort((a, b) => (a.period_end < b.period_end ? 1 : -1));
+
   return (
     <form onSubmit={submit} className="space-y-4">
-      <div className="panel p-4 flex items-end gap-3">
-        <div className="flex-1">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Fiscal Year (March year-end)</Label>
+      <div className="panel p-4 grid sm:grid-cols-4 gap-3 items-end">
+        <div>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Period type</Label>
+          <Select value={periodType} onValueChange={(v) => setPeriodType(v as "annual" | "quarterly")}>
+            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="annual">Annual</SelectItem>
+              <SelectItem value="quarterly">Quarterly</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Fiscal year</Label>
           <Input
             type="number" min={1990} max={2100} value={fy}
             onChange={(e) => setFy(parseInt(e.target.value) || fy)}
-            className="mono mt-1 w-32"
+            className="mono mt-1"
           />
         </div>
-        <p className="text-xs text-muted-foreground mb-2">All values in ₹ crore</p>
+        <div>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Period end</Label>
+          <Input
+            type="date" value={periodEnd}
+            onChange={(e) => setPeriodEnd(e.target.value)}
+            className="mono mt-1"
+          />
+        </div>
+        <div className="text-xs text-muted-foreground">
+          All values in ₹ crore.{" "}
+          {existing ? (
+            <span className="text-primary">Editing saved data</span>
+          ) : (
+            <span>New entry</span>
+          )}
+        </div>
       </div>
+
+      {savedPeriods.length > 0 && (
+        <div className="panel p-3">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
+            Saved periods — click to edit
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {savedPeriods.map((s) => {
+              const isActive = s.period_type === periodType && s.period_end === periodEnd;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => {
+                    setPeriodType(s.period_type as "annual" | "quarterly");
+                    setFy(s.fiscal_year);
+                    setPeriodEnd(s.period_end);
+                  }}
+                  className={`text-[10px] mono px-2 py-0.5 rounded border ${
+                    isActive
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground hover:border-primary/50"
+                  }`}
+                >
+                  {s.period_type === "annual" ? `FY${s.fiscal_year}` : `${s.period_end}`}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="grid md:grid-cols-3 gap-4">
         {(["P&L", "BS", "CF"] as const).map((g) => (
           <div key={g} className="panel">
@@ -794,10 +902,12 @@ function FinancialForm({
         ))}
       </div>
       <Button type="submit" disabled={busy} className="w-full">
-        {busy ? <Loader2 className="size-4 mr-1 animate-spin" /> : null} Save FY{fy} financials
+        {busy ? <Loader2 className="size-4 mr-1 animate-spin" /> : null}
+        {existing ? "Update" : "Save"} {periodType === "annual" ? `FY${fy}` : periodEnd}
       </Button>
     </form>
   );
+
 }
 
 // ─── Document Form (unchanged) ────────────────────────────────────────────────
