@@ -534,16 +534,21 @@ function ExcelImportForm({
 
       {/* Preview table */}
       {parsed && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {/* Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
               <p className="font-semibold">{parsed.company_name}</p>
-              <p className="text-xs text-muted-foreground">{parsed.years.length} years found</p>
+              <p className="text-xs text-muted-foreground">
+                {parsed.years.length} annual · {parsed.quarters.length} quarterly periods found
+              </p>
             </div>
-            <Button onClick={saveAll} disabled={saving || parsed.years.every((y) => saved.has(y.fiscal_year))}>
+            <Button
+              onClick={saveAll}
+              disabled={saving || [...parsed.years, ...parsed.quarters].every((p) => saved.has(key(p)))}
+            >
               {saving ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : <UploadCloud className="size-4 mr-1.5" />}
-              Save All {parsed.years.length} Years
+              Save All ({parsed.years.length + parsed.quarters.length})
             </Button>
           </div>
 
@@ -554,78 +559,120 @@ function ExcelImportForm({
             </div>
           )}
 
-          {/* Table */}
-          <div className="panel overflow-x-auto">
-            <table className="w-full text-xs mono">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left p-2 text-muted-foreground font-medium">Metric</th>
-                  {parsed.years.map((y) => (
-                    <th key={y.fiscal_year} className="text-right p-2 text-muted-foreground font-medium whitespace-nowrap">
-                      FY{y.fiscal_year}
-                    </th>
-                  ))}
-                  <th className="p-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {/* P&L section */}
-                <tr className="bg-muted/30">
-                  <td colSpan={parsed.years.length + 2} className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-                    Profit & Loss (₹ Cr)
-                  </td>
-                </tr>
-                {(["revenue","ebitda","depreciation","ebit","interest","tax","pat"] as const).map((k) => (
-                  <PreviewRow key={k} label={k.toUpperCase()} years={parsed.years} accessor={(y) => y.data.pnl?.[k]} />
-                ))}
-
-                {/* BS section */}
-                <tr className="bg-muted/30">
-                  <td colSpan={parsed.years.length + 2} className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-                    Balance Sheet (₹ Cr)
-                  </td>
-                </tr>
-                {(["total_assets","equity","total_debt","receivables","inventory","cash"] as const).map((k) => (
-                  <PreviewRow key={k} label={k.replace(/_/g," ")} years={parsed.years} accessor={(y) => y.data.bs?.[k]} />
-                ))}
-
-                {/* CF section */}
-                <tr className="bg-muted/30">
-                  <td colSpan={parsed.years.length + 2} className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-                    Cash Flow (₹ Cr)
-                  </td>
-                </tr>
-                {(["cfo","capex","fcf"] as const).map((k) => (
-                  <PreviewRow key={k} label={k.toUpperCase()} years={parsed.years} accessor={(y) => y.data.cf?.[k]} />
-                ))}
-
-                {/* Per-year save buttons row */}
-                <tr className="border-t border-border">
-                  <td className="p-2 text-muted-foreground">Save year</td>
-                  {parsed.years.map((y) => (
-                    <td key={y.fiscal_year} className="p-2 text-right">
-                      {saved.has(y.fiscal_year) ? (
-                        <span className="inline-flex items-center gap-1 text-green-600">
-                          <CheckCircle2 className="size-3.5" /> Saved
-                        </span>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 text-[10px] px-2"
-                          disabled={saving}
-                          onClick={() => saveOne(y)}
-                        >
-                          FY{y.fiscal_year}
-                        </Button>
-                      )}
+          {/* Annual table */}
+          {parsed.years.length > 0 && (
+            <div className="panel overflow-x-auto">
+              <div className="panel-header"><span>Annual ({parsed.years.length})</span></div>
+              <table className="w-full text-xs mono">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left p-2 text-muted-foreground font-medium">Metric</th>
+                    {parsed.years.map((y) => (
+                      <th key={y.period_end} className="text-right p-2 text-muted-foreground font-medium whitespace-nowrap">
+                        {y.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="bg-muted/30">
+                    <td colSpan={parsed.years.length + 1} className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                      Profit & Loss (₹ Cr)
                     </td>
+                  </tr>
+                  {(["revenue","ebitda","depreciation","ebit","interest","tax","pat"] as const).map((k) => (
+                    <PreviewRow key={k} label={k.toUpperCase()} years={parsed.years} accessor={(y) => y.data.pnl?.[k]} />
                   ))}
-                  <td />
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                  <tr className="bg-muted/30">
+                    <td colSpan={parsed.years.length + 1} className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                      Balance Sheet (₹ Cr)
+                    </td>
+                  </tr>
+                  {(["total_assets","equity","total_debt","receivables","inventory","cash"] as const).map((k) => (
+                    <PreviewRow key={k} label={k.replace(/_/g," ")} years={parsed.years} accessor={(y) => y.data.bs?.[k]} />
+                  ))}
+                  <tr className="bg-muted/30">
+                    <td colSpan={parsed.years.length + 1} className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                      Cash Flow (₹ Cr)
+                    </td>
+                  </tr>
+                  {(["cfo","capex","fcf"] as const).map((k) => (
+                    <PreviewRow key={k} label={k.toUpperCase()} years={parsed.years} accessor={(y) => y.data.cf?.[k]} />
+                  ))}
+                  <tr className="border-t border-border">
+                    <td className="p-2 text-muted-foreground">Save</td>
+                    {parsed.years.map((y) => (
+                      <td key={y.period_end} className="p-2 text-right">
+                        {saved.has(key(y)) ? (
+                          <span className="inline-flex items-center gap-1 text-green-600">
+                            <CheckCircle2 className="size-3.5" />
+                          </span>
+                        ) : (
+                          <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" disabled={saving} onClick={() => saveOne(y)}>
+                            {y.label}
+                          </Button>
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Quarterly table */}
+          {parsed.quarters.length > 0 && (
+            <div className="panel overflow-x-auto">
+              <div className="panel-header flex items-center justify-between">
+                <span>Quarterly ({parsed.quarters.length})</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 text-[10px]"
+                  disabled={saving || parsed.quarters.every((q) => saved.has(key(q)))}
+                  onClick={() => saveBatch(parsed.quarters, "quarters")}
+                >
+                  Save all quarters
+                </Button>
+              </div>
+              <table className="w-full text-xs mono">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left p-2 text-muted-foreground font-medium">Metric</th>
+                    {parsed.quarters.map((q) => (
+                      <th key={q.period_end} className="text-right p-2 text-muted-foreground font-medium whitespace-nowrap">
+                        {q.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(["revenue","operating_profit","opm","other_income","depreciation","interest","pbt","tax","pat"] as const).map((k) => (
+                    <PreviewRow
+                      key={k}
+                      label={k.replace(/_/g, " ").toUpperCase()}
+                      years={parsed.quarters}
+                      accessor={(q) => q.data.pnl?.[k]}
+                    />
+                  ))}
+                  <tr className="border-t border-border">
+                    <td className="p-2 text-muted-foreground">Save</td>
+                    {parsed.quarters.map((q) => (
+                      <td key={q.period_end} className="p-2 text-right">
+                        {saved.has(key(q)) ? (
+                          <CheckCircle2 className="size-3.5 text-green-600 inline" />
+                        ) : (
+                          <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" disabled={saving} onClick={() => saveOne(q)}>
+                            {q.label.replace("FY", "")}
+                          </Button>
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Reset */}
           <button
@@ -638,6 +685,7 @@ function ExcelImportForm({
       )}
     </div>
   );
+
 }
 
 function PreviewRow({
