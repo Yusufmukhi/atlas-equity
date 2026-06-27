@@ -155,7 +155,7 @@ function parseScreenerExcel(file: ArrayBuffer): ParseResult {
   const cfoRow         = raw[81] as unknown[];  // row 82
   const cfiRow         = raw[82] as unknown[];  // row 83 (investing = capex proxy)
 
-  const years: ParsedYear[] = colEntries.map(({ colIdx, fiscal_year, period_end }) => {
+  const years: ParsedPeriod[] = colEntries.map(({ colIdx, fiscal_year, period_end }) => {
     const c = colIdx;
 
     const revenue    = num(salesRow?.[c]);
@@ -214,11 +214,83 @@ function parseScreenerExcel(file: ArrayBuffer): ParseResult {
     if (capex !== null) cf.capex = capex;
     if (fcf   !== null) cf.fcf   = parseFloat(fcf.toFixed(2));
 
-    return { fiscal_year, period_end, data: { pnl, bs, cf } };
+    return {
+      period_type: "annual",
+      fiscal_year,
+      period_end,
+      label: `FY${fiscal_year}`,
+      data: { pnl, bs, cf },
+    };
   });
 
-  return { company_name, years, warnings };
+  // ── Quarterly section: rows 40-49 on Data Sheet ─────────────────────────────
+  const qDateRow      = raw[40] as unknown[]; // row 41 — "Report Date"
+  const qSalesRow     = raw[41] as unknown[];
+  const qExpRow       = raw[42] as unknown[];
+  const qOtherIncRow  = raw[43] as unknown[];
+  const qDepRow       = raw[44] as unknown[];
+  const qIntRow       = raw[45] as unknown[];
+  const qPbtRow       = raw[46] as unknown[];
+  const qTaxRow       = raw[47] as unknown[];
+  const qPatRow       = raw[48] as unknown[];
+  const qOpRow        = raw[49] as unknown[];
+
+  const quarters: ParsedPeriod[] = [];
+  for (let c = 1; c <= 14; c++) {
+    const cell = qDateRow?.[c];
+    if (!cell) continue;
+    let d: Date | null = null;
+    if (cell instanceof Date) d = cell;
+    else if (typeof cell === "string" && cell.match(/\d{4}/)) {
+      const parsed = new Date(cell);
+      if (!isNaN(parsed.getTime())) d = parsed;
+    }
+    if (!d) continue;
+    const m = d.getMonth() + 1; // 1-12
+    const y = d.getFullYear();
+    // Indian FY: Apr-Mar. Quarter index in FY:
+    const qIdx = m <= 3 ? 4 : m <= 6 ? 1 : m <= 9 ? 2 : 3;
+    const fyEnd = m <= 3 ? y : y + 1;
+    const label = `Q${qIdx} FY${String(fyEnd).slice(-2)}`;
+    const iso = d.toISOString().slice(0, 10);
+
+    const sales = num(qSalesRow?.[c]);
+    const exp   = num(qExpRow?.[c]);
+    const oth   = num(qOtherIncRow?.[c]);
+    const dep   = num(qDepRow?.[c]);
+    const intr  = num(qIntRow?.[c]);
+    const pbt   = num(qPbtRow?.[c]);
+    const tax   = num(qTaxRow?.[c]);
+    const pat   = num(qPatRow?.[c]);
+    const op    = num(qOpRow?.[c]);
+
+    const pnl: Record<string, number> = {};
+    if (sales !== null) pnl.revenue        = sales;
+    if (exp   !== null) pnl.total_expenses = exp;
+    if (op    !== null) pnl.operating_profit = op;
+    if (oth   !== null) pnl.other_income   = oth;
+    if (dep   !== null) pnl.depreciation   = dep;
+    if (intr  !== null) pnl.interest       = intr;
+    if (pbt   !== null) pnl.pbt            = pbt;
+    if (tax   !== null) pnl.tax            = tax;
+    if (pat   !== null) pnl.pat            = pat;
+    if (sales !== null && op !== null && sales !== 0) {
+      pnl.opm = parseFloat(((op / sales) * 100).toFixed(2));
+    }
+
+    if (Object.keys(pnl).length === 0) continue;
+    quarters.push({
+      period_type: "quarterly",
+      fiscal_year: fyEnd,
+      period_end: iso,
+      label,
+      data: { pnl },
+    });
+  }
+
+  return { company_name, years, quarters, warnings };
 }
+
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
