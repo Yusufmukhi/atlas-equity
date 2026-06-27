@@ -392,7 +392,7 @@ function UploadPage() {
 
 type SaveYearPayload = {
   company_id: string;
-  period_type: "annual";
+  period_type: "annual" | "quarterly";
   fiscal_year: number;
   period_end: string;
   data: Record<string, unknown>;
@@ -409,8 +409,10 @@ function ExcelImportForm({
   const [parseErr, setParseErr]   = useState<string | null>(null);
   const [dragging, setDragging]   = useState(false);
   const [saving, setSaving]       = useState(false);
-  const [saved, setSaved]         = useState<Set<number>>(new Set());
+  const [saved, setSaved]         = useState<Set<string>>(new Set());
   const [fileName, setFileName]   = useState<string>("");
+
+  const key = (p: ParsedPeriod) => `${p.period_type}:${p.period_end}`;
 
   const handleFile = useCallback((file: File) => {
     setParseErr(null);
@@ -440,49 +442,48 @@ function ExcelImportForm({
     [handleFile],
   );
 
-  const saveAll = async () => {
-    if (!parsed) return;
+  const saveBatch = async (rows: ParsedPeriod[], label: string) => {
     setSaving(true);
-    let ok = 0;
-    let fail = 0;
-    for (const y of parsed.years) {
+    let ok = 0, fail = 0;
+    for (const p of rows) {
       try {
         await onSaveYear({
           company_id: companyId,
-          period_type: "annual",
-          fiscal_year: y.fiscal_year,
-          period_end: y.period_end,
-          data: y.data,
+          period_type: p.period_type,
+          fiscal_year: p.fiscal_year,
+          period_end: p.period_end,
+          data: p.data,
         });
-        setSaved((s) => new Set(s).add(y.fiscal_year));
+        setSaved((s) => new Set(s).add(key(p)));
         ok++;
-      } catch {
-        fail++;
-      }
+      } catch { fail++; }
     }
     setSaving(false);
-    if (fail === 0) toast.success(`Saved ${ok} years of financials`);
+    if (fail === 0) toast.success(`Saved ${ok} ${label}`);
     else toast.error(`${ok} saved, ${fail} failed`);
   };
 
-  const saveOne = async (y: ParsedPeriod) => {
+  const saveAll = () => parsed && saveBatch([...parsed.years, ...parsed.quarters], "rows");
+
+  const saveOne = async (p: ParsedPeriod) => {
     setSaving(true);
     try {
       await onSaveYear({
         company_id: companyId,
-        period_type: "annual",
-        fiscal_year: y.fiscal_year,
-        period_end: y.period_end,
-        data: y.data,
+        period_type: p.period_type,
+        fiscal_year: p.fiscal_year,
+        period_end: p.period_end,
+        data: p.data,
       });
-      setSaved((s) => new Set(s).add(y.fiscal_year));
-      toast.success(`FY${y.fiscal_year} saved`);
+      setSaved((s) => new Set(s).add(key(p)));
+      toast.success(`${p.label} saved`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
     } finally {
       setSaving(false);
     }
   };
+
 
   return (
     <div className="space-y-4">
