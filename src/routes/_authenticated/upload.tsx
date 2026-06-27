@@ -1,11 +1,11 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { z } from "zod";
 import * as XLSX from "xlsx";
 import { TerminalShell } from "@/components/TerminalShell";
-import { listCompanies, upsertFinancialStatement } from "@/lib/companies.functions";
+import { listCompanies, upsertFinancialStatement, getCompanyBySymbol } from "@/lib/companies.functions";
 import { uploadDocument } from "@/lib/documents.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Loader2, UploadCloud, FileSpreadsheet, CheckCircle2, AlertCircle, X } from "lucide-react";
+
 
 const search = z.object({ company: z.string().optional() });
 
@@ -55,17 +56,21 @@ const FIELDS = [
 
 // ─── Screener Excel Parser ────────────────────────────────────────────────────
 
-type ParsedYear = {
+type ParsedPeriod = {
+  period_type: "annual" | "quarterly";
   fiscal_year: number;
-  period_end: string;
+  period_end: string; // YYYY-MM-DD
+  label: string;      // e.g. "FY2026" or "Q3 FY26"
   data: Record<string, Record<string, number>>;
 };
 
 type ParseResult = {
   company_name: string;
-  years: ParsedYear[];
+  years: ParsedPeriod[];     // annual rows
+  quarters: ParsedPeriod[];  // quarterly rows
   warnings: string[];
 };
+
 
 function num(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
@@ -150,7 +155,7 @@ function parseScreenerExcel(file: ArrayBuffer): ParseResult {
   const cfoRow         = raw[81] as unknown[];  // row 82
   const cfiRow         = raw[82] as unknown[];  // row 83 (investing = capex proxy)
 
-  const years: ParsedYear[] = colEntries.map(({ colIdx, fiscal_year, period_end }) => {
+  const years: ParsedPeriod[] = colEntries.map(({ colIdx, fiscal_year, period_end }) => {
     const c = colIdx;
 
     const revenue    = num(salesRow?.[c]);
@@ -209,11 +214,83 @@ function parseScreenerExcel(file: ArrayBuffer): ParseResult {
     if (capex !== null) cf.capex = capex;
     if (fcf   !== null) cf.fcf   = parseFloat(fcf.toFixed(2));
 
-    return { fiscal_year, period_end, data: { pnl, bs, cf } };
+    return {
+      period_type: "annual",
+      fiscal_year,
+      period_end,
+      label: `FY${fiscal_year}`,
+      data: { pnl, bs, cf },
+    };
   });
 
-  return { company_name, years, warnings };
+  // ── Quarterly section: rows 40-49 on Data Sheet ─────────────────────────────
+  const qDateRow      = raw[40] as unknown[]; // row 41 — "Report Date"
+  const qSalesRow     = raw[41] as unknown[];
+  const qExpRow       = raw[42] as unknown[];
+  const qOtherIncRow  = raw[43] as unknown[];
+  const qDepRow       = raw[44] as unknown[];
+  const qIntRow       = raw[45] as unknown[];
+  const qPbtRow       = raw[46] as unknown[];
+  const qTaxRow       = raw[47] as unknown[];
+  const qPatRow       = raw[48] as unknown[];
+  const qOpRow        = raw[49] as unknown[];
+
+  const quarters: ParsedPeriod[] = [];
+  for (let c = 1; c <= 14; c++) {
+    const cell = qDateRow?.[c];
+    if (!cell) continue;
+    let d: Date | null = null;
+    if (cell instanceof Date) d = cell;
+    else if (typeof cell === "string" && cell.match(/\d{4}/)) {
+      const parsed = new Date(cell);
+      if (!isNaN(parsed.getTime())) d = parsed;
+    }
+    if (!d) continue;
+    const m = d.getMonth() + 1; // 1-12
+    const y = d.getFullYear();
+    // Indian FY: Apr-Mar. Quarter index in FY:
+    const qIdx = m <= 3 ? 4 : m <= 6 ? 1 : m <= 9 ? 2 : 3;
+    const fyEnd = m <= 3 ? y : y + 1;
+    const label = `Q${qIdx} FY${String(fyEnd).slice(-2)}`;
+    const iso = d.toISOString().slice(0, 10);
+
+    const sales = num(qSalesRow?.[c]);
+    const exp   = num(qExpRow?.[c]);
+    const oth   = num(qOtherIncRow?.[c]);
+    const dep   = num(qDepRow?.[c]);
+    const intr  = num(qIntRow?.[c]);
+    const pbt   = num(qPbtRow?.[c]);
+    const tax   = num(qTaxRow?.[c]);
+    const pat   = num(qPatRow?.[c]);
+    const op    = num(qOpRow?.[c]);
+
+    const pnl: Record<string, number> = {};
+    if (sales !== null) pnl.revenue        = sales;
+    if (exp   !== null) pnl.total_expenses = exp;
+    if (op    !== null) pnl.operating_profit = op;
+    if (oth   !== null) pnl.other_income   = oth;
+    if (dep   !== null) pnl.depreciation   = dep;
+    if (intr  !== null) pnl.interest       = intr;
+    if (pbt   !== null) pnl.pbt            = pbt;
+    if (tax   !== null) pnl.tax            = tax;
+    if (pat   !== null) pnl.pat            = pat;
+    if (sales !== null && op !== null && sales !== 0) {
+      pnl.opm = parseFloat(((op / sales) * 100).toFixed(2));
+    }
+
+    if (Object.keys(pnl).length === 0) continue;
+    quarters.push({
+      period_type: "quarterly",
+      fiscal_year: fyEnd,
+      period_end: iso,
+      label,
+      data: { pnl },
+    });
+  }
+
+  return { company_name, years, quarters, warnings };
 }
+
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -285,6 +362,7 @@ function UploadPage() {
             <TabsContent value="financials" className="mt-4">
               <FinancialForm
                 companyId={selected}
+                companySymbol={companies.find((c) => c.id === selected)?.symbol ?? ""}
                 onSubmit={async (payload) => {
                   await upFin({ data: payload });
                   qc.invalidateQueries({ queryKey: ["company"] });
@@ -292,6 +370,7 @@ function UploadPage() {
                 }}
               />
             </TabsContent>
+
 
             {/* ── Document Tab ── */}
             <TabsContent value="document" className="mt-4">
@@ -315,7 +394,7 @@ function UploadPage() {
 
 type SaveYearPayload = {
   company_id: string;
-  period_type: "annual";
+  period_type: "annual" | "quarterly";
   fiscal_year: number;
   period_end: string;
   data: Record<string, unknown>;
@@ -332,8 +411,10 @@ function ExcelImportForm({
   const [parseErr, setParseErr]   = useState<string | null>(null);
   const [dragging, setDragging]   = useState(false);
   const [saving, setSaving]       = useState(false);
-  const [saved, setSaved]         = useState<Set<number>>(new Set());
+  const [saved, setSaved]         = useState<Set<string>>(new Set());
   const [fileName, setFileName]   = useState<string>("");
+
+  const key = (p: ParsedPeriod) => `${p.period_type}:${p.period_end}`;
 
   const handleFile = useCallback((file: File) => {
     setParseErr(null);
@@ -363,49 +444,48 @@ function ExcelImportForm({
     [handleFile],
   );
 
-  const saveAll = async () => {
-    if (!parsed) return;
+  const saveBatch = async (rows: ParsedPeriod[], label: string) => {
     setSaving(true);
-    let ok = 0;
-    let fail = 0;
-    for (const y of parsed.years) {
+    let ok = 0, fail = 0;
+    for (const p of rows) {
       try {
         await onSaveYear({
           company_id: companyId,
-          period_type: "annual",
-          fiscal_year: y.fiscal_year,
-          period_end: y.period_end,
-          data: y.data,
+          period_type: p.period_type,
+          fiscal_year: p.fiscal_year,
+          period_end: p.period_end,
+          data: p.data,
         });
-        setSaved((s) => new Set(s).add(y.fiscal_year));
+        setSaved((s) => new Set(s).add(key(p)));
         ok++;
-      } catch {
-        fail++;
-      }
+      } catch { fail++; }
     }
     setSaving(false);
-    if (fail === 0) toast.success(`Saved ${ok} years of financials`);
+    if (fail === 0) toast.success(`Saved ${ok} ${label}`);
     else toast.error(`${ok} saved, ${fail} failed`);
   };
 
-  const saveOne = async (y: ParsedYear) => {
+  const saveAll = () => parsed && saveBatch([...parsed.years, ...parsed.quarters], "rows");
+
+  const saveOne = async (p: ParsedPeriod) => {
     setSaving(true);
     try {
       await onSaveYear({
         company_id: companyId,
-        period_type: "annual",
-        fiscal_year: y.fiscal_year,
-        period_end: y.period_end,
-        data: y.data,
+        period_type: p.period_type,
+        fiscal_year: p.fiscal_year,
+        period_end: p.period_end,
+        data: p.data,
       });
-      setSaved((s) => new Set(s).add(y.fiscal_year));
-      toast.success(`FY${y.fiscal_year} saved`);
+      setSaved((s) => new Set(s).add(key(p)));
+      toast.success(`${p.label} saved`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
     } finally {
       setSaving(false);
     }
   };
+
 
   return (
     <div className="space-y-4">
@@ -456,16 +536,21 @@ function ExcelImportForm({
 
       {/* Preview table */}
       {parsed && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {/* Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
               <p className="font-semibold">{parsed.company_name}</p>
-              <p className="text-xs text-muted-foreground">{parsed.years.length} years found</p>
+              <p className="text-xs text-muted-foreground">
+                {parsed.years.length} annual · {parsed.quarters.length} quarterly periods found
+              </p>
             </div>
-            <Button onClick={saveAll} disabled={saving || parsed.years.every((y) => saved.has(y.fiscal_year))}>
+            <Button
+              onClick={saveAll}
+              disabled={saving || [...parsed.years, ...parsed.quarters].every((p) => saved.has(key(p)))}
+            >
               {saving ? <Loader2 className="size-4 mr-1.5 animate-spin" /> : <UploadCloud className="size-4 mr-1.5" />}
-              Save All {parsed.years.length} Years
+              Save All ({parsed.years.length + parsed.quarters.length})
             </Button>
           </div>
 
@@ -476,78 +561,120 @@ function ExcelImportForm({
             </div>
           )}
 
-          {/* Table */}
-          <div className="panel overflow-x-auto">
-            <table className="w-full text-xs mono">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left p-2 text-muted-foreground font-medium">Metric</th>
-                  {parsed.years.map((y) => (
-                    <th key={y.fiscal_year} className="text-right p-2 text-muted-foreground font-medium whitespace-nowrap">
-                      FY{y.fiscal_year}
-                    </th>
-                  ))}
-                  <th className="p-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {/* P&L section */}
-                <tr className="bg-muted/30">
-                  <td colSpan={parsed.years.length + 2} className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-                    Profit & Loss (₹ Cr)
-                  </td>
-                </tr>
-                {(["revenue","ebitda","depreciation","ebit","interest","tax","pat"] as const).map((k) => (
-                  <PreviewRow key={k} label={k.toUpperCase()} years={parsed.years} accessor={(y) => y.data.pnl?.[k]} />
-                ))}
-
-                {/* BS section */}
-                <tr className="bg-muted/30">
-                  <td colSpan={parsed.years.length + 2} className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-                    Balance Sheet (₹ Cr)
-                  </td>
-                </tr>
-                {(["total_assets","equity","total_debt","receivables","inventory","cash"] as const).map((k) => (
-                  <PreviewRow key={k} label={k.replace(/_/g," ")} years={parsed.years} accessor={(y) => y.data.bs?.[k]} />
-                ))}
-
-                {/* CF section */}
-                <tr className="bg-muted/30">
-                  <td colSpan={parsed.years.length + 2} className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-                    Cash Flow (₹ Cr)
-                  </td>
-                </tr>
-                {(["cfo","capex","fcf"] as const).map((k) => (
-                  <PreviewRow key={k} label={k.toUpperCase()} years={parsed.years} accessor={(y) => y.data.cf?.[k]} />
-                ))}
-
-                {/* Per-year save buttons row */}
-                <tr className="border-t border-border">
-                  <td className="p-2 text-muted-foreground">Save year</td>
-                  {parsed.years.map((y) => (
-                    <td key={y.fiscal_year} className="p-2 text-right">
-                      {saved.has(y.fiscal_year) ? (
-                        <span className="inline-flex items-center gap-1 text-green-600">
-                          <CheckCircle2 className="size-3.5" /> Saved
-                        </span>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-6 text-[10px] px-2"
-                          disabled={saving}
-                          onClick={() => saveOne(y)}
-                        >
-                          FY{y.fiscal_year}
-                        </Button>
-                      )}
+          {/* Annual table */}
+          {parsed.years.length > 0 && (
+            <div className="panel overflow-x-auto">
+              <div className="panel-header"><span>Annual ({parsed.years.length})</span></div>
+              <table className="w-full text-xs mono">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left p-2 text-muted-foreground font-medium">Metric</th>
+                    {parsed.years.map((y) => (
+                      <th key={y.period_end} className="text-right p-2 text-muted-foreground font-medium whitespace-nowrap">
+                        {y.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="bg-muted/30">
+                    <td colSpan={parsed.years.length + 1} className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                      Profit & Loss (₹ Cr)
                     </td>
+                  </tr>
+                  {(["revenue","ebitda","depreciation","ebit","interest","tax","pat"] as const).map((k) => (
+                    <PreviewRow key={k} label={k.toUpperCase()} years={parsed.years} accessor={(y) => y.data.pnl?.[k]} />
                   ))}
-                  <td />
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                  <tr className="bg-muted/30">
+                    <td colSpan={parsed.years.length + 1} className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                      Balance Sheet (₹ Cr)
+                    </td>
+                  </tr>
+                  {(["total_assets","equity","total_debt","receivables","inventory","cash"] as const).map((k) => (
+                    <PreviewRow key={k} label={k.replace(/_/g," ")} years={parsed.years} accessor={(y) => y.data.bs?.[k]} />
+                  ))}
+                  <tr className="bg-muted/30">
+                    <td colSpan={parsed.years.length + 1} className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                      Cash Flow (₹ Cr)
+                    </td>
+                  </tr>
+                  {(["cfo","capex","fcf"] as const).map((k) => (
+                    <PreviewRow key={k} label={k.toUpperCase()} years={parsed.years} accessor={(y) => y.data.cf?.[k]} />
+                  ))}
+                  <tr className="border-t border-border">
+                    <td className="p-2 text-muted-foreground">Save</td>
+                    {parsed.years.map((y) => (
+                      <td key={y.period_end} className="p-2 text-right">
+                        {saved.has(key(y)) ? (
+                          <span className="inline-flex items-center gap-1 text-green-600">
+                            <CheckCircle2 className="size-3.5" />
+                          </span>
+                        ) : (
+                          <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" disabled={saving} onClick={() => saveOne(y)}>
+                            {y.label}
+                          </Button>
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Quarterly table */}
+          {parsed.quarters.length > 0 && (
+            <div className="panel overflow-x-auto">
+              <div className="panel-header flex items-center justify-between">
+                <span>Quarterly ({parsed.quarters.length})</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 text-[10px]"
+                  disabled={saving || parsed.quarters.every((q) => saved.has(key(q)))}
+                  onClick={() => saveBatch(parsed.quarters, "quarters")}
+                >
+                  Save all quarters
+                </Button>
+              </div>
+              <table className="w-full text-xs mono">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left p-2 text-muted-foreground font-medium">Metric</th>
+                    {parsed.quarters.map((q) => (
+                      <th key={q.period_end} className="text-right p-2 text-muted-foreground font-medium whitespace-nowrap">
+                        {q.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(["revenue","operating_profit","opm","other_income","depreciation","interest","pbt","tax","pat"] as const).map((k) => (
+                    <PreviewRow
+                      key={k}
+                      label={k.replace(/_/g, " ").toUpperCase()}
+                      years={parsed.quarters}
+                      accessor={(q) => q.data.pnl?.[k]}
+                    />
+                  ))}
+                  <tr className="border-t border-border">
+                    <td className="p-2 text-muted-foreground">Save</td>
+                    {parsed.quarters.map((q) => (
+                      <td key={q.period_end} className="p-2 text-right">
+                        {saved.has(key(q)) ? (
+                          <CheckCircle2 className="size-3.5 text-green-600 inline" />
+                        ) : (
+                          <Button size="sm" variant="outline" className="h-6 text-[10px] px-2" disabled={saving} onClick={() => saveOne(q)}>
+                            {q.label.replace("FY", "")}
+                          </Button>
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Reset */}
           <button
@@ -560,6 +687,7 @@ function ExcelImportForm({
       )}
     </div>
   );
+
 }
 
 function PreviewRow({
@@ -568,8 +696,8 @@ function PreviewRow({
   accessor,
 }: {
   label: string;
-  years: ParsedYear[];
-  accessor: (y: ParsedYear) => number | undefined;
+  years: ParsedPeriod[];
+  accessor: (y: ParsedPeriod) => number | undefined;
 }) {
   return (
     <tr className="border-b border-border/50 hover:bg-muted/20">
@@ -577,34 +705,75 @@ function PreviewRow({
       {years.map((y) => {
         const v = accessor(y);
         return (
-          <td key={y.fiscal_year} className={`p-2 text-right ${v === undefined ? "text-muted-foreground/40" : ""}`}>
+          <td key={y.period_end} className={`p-2 text-right ${v === undefined ? "text-muted-foreground/40" : ""}`}>
             {v !== undefined ? v.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—"}
           </td>
         );
       })}
-      <td />
     </tr>
   );
 }
 
-// ─── Manual Financial Form (unchanged) ───────────────────────────────────────
+// ─── Manual Financial Form — prefills from existing saved data ────────────────
 
 function FinancialForm({
   companyId,
+  companySymbol,
   onSubmit,
 }: {
   companyId: string;
+  companySymbol: string;
   onSubmit: (p: {
     company_id: string;
-    period_type: "annual";
+    period_type: "annual" | "quarterly";
     fiscal_year: number;
     period_end: string;
     data: Record<string, unknown>;
   }) => Promise<void>;
 }) {
-  const [fy, setFy]   = useState<number>(new Date().getFullYear());
+  const getFn = useServerFn(getCompanyBySymbol);
+  const { data: companyData } = useQuery({
+    queryKey: ["company", companySymbol],
+    queryFn: () => getFn({ data: { symbol: companySymbol } }),
+    enabled: !!companySymbol,
+  });
+
+  const [periodType, setPeriodType] = useState<"annual" | "quarterly">("annual");
+  const [fy, setFy] = useState<number>(new Date().getFullYear());
+  const [periodEnd, setPeriodEnd] = useState<string>(`${new Date().getFullYear()}-03-31`);
   const [vals, setVals] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+
+  // Update default period_end whenever fy changes (annual = March end)
+  useEffect(() => {
+    if (periodType === "annual") setPeriodEnd(`${fy}-03-31`);
+  }, [fy, periodType]);
+
+  // Find existing statement for current selection
+  const existing = useMemo(() => {
+    if (!companyData) return null;
+    return (
+      companyData.statements.find(
+        (s) => s.period_type === periodType && s.period_end === periodEnd,
+      ) ?? null
+    );
+  }, [companyData, periodType, periodEnd]);
+
+  // Pre-fill values when an existing statement is found (or clear otherwise)
+  useEffect(() => {
+    if (!existing) {
+      setVals({});
+      return;
+    }
+    const next: Record<string, string> = {};
+    const data = (existing.data ?? {}) as Record<string, Record<string, number>>;
+    for (const f of FIELDS) {
+      const [g, k] = f.key.split(".");
+      const v = data[g]?.[k];
+      if (v !== undefined && v !== null) next[f.key] = String(v);
+    }
+    setVals(next);
+  }, [existing]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -620,8 +789,13 @@ function FinancialForm({
         data[group] ??= {};
         data[group][key] = n;
       }
-      await onSubmit({ company_id: companyId, period_type: "annual", fiscal_year: fy, period_end: `${fy}-03-31`, data });
-      setVals({});
+      await onSubmit({
+        company_id: companyId,
+        period_type: periodType,
+        fiscal_year: fy,
+        period_end: periodEnd,
+        data,
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -632,19 +806,81 @@ function FinancialForm({
   const grouped: Record<string, typeof FIELDS[number][]> = { "P&L": [], BS: [], CF: [] };
   for (const f of FIELDS) grouped[f.group].push(f);
 
+  // Existing periods list (so user knows what's saved)
+  const savedPeriods = (companyData?.statements ?? [])
+    .slice()
+    .sort((a, b) => (a.period_end < b.period_end ? 1 : -1));
+
   return (
     <form onSubmit={submit} className="space-y-4">
-      <div className="panel p-4 flex items-end gap-3">
-        <div className="flex-1">
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Fiscal Year (March year-end)</Label>
+      <div className="panel p-4 grid sm:grid-cols-4 gap-3 items-end">
+        <div>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Period type</Label>
+          <Select value={periodType} onValueChange={(v) => setPeriodType(v as "annual" | "quarterly")}>
+            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="annual">Annual</SelectItem>
+              <SelectItem value="quarterly">Quarterly</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Fiscal year</Label>
           <Input
             type="number" min={1990} max={2100} value={fy}
             onChange={(e) => setFy(parseInt(e.target.value) || fy)}
-            className="mono mt-1 w-32"
+            className="mono mt-1"
           />
         </div>
-        <p className="text-xs text-muted-foreground mb-2">All values in ₹ crore</p>
+        <div>
+          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Period end</Label>
+          <Input
+            type="date" value={periodEnd}
+            onChange={(e) => setPeriodEnd(e.target.value)}
+            className="mono mt-1"
+          />
+        </div>
+        <div className="text-xs text-muted-foreground">
+          All values in ₹ crore.{" "}
+          {existing ? (
+            <span className="text-primary">Editing saved data</span>
+          ) : (
+            <span>New entry</span>
+          )}
+        </div>
       </div>
+
+      {savedPeriods.length > 0 && (
+        <div className="panel p-3">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
+            Saved periods — click to edit
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {savedPeriods.map((s) => {
+              const isActive = s.period_type === periodType && s.period_end === periodEnd;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => {
+                    setPeriodType(s.period_type as "annual" | "quarterly");
+                    setFy(s.fiscal_year);
+                    setPeriodEnd(s.period_end);
+                  }}
+                  className={`text-[10px] mono px-2 py-0.5 rounded border ${
+                    isActive
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground hover:border-primary/50"
+                  }`}
+                >
+                  {s.period_type === "annual" ? `FY${s.fiscal_year}` : `${s.period_end}`}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="grid md:grid-cols-3 gap-4">
         {(["P&L", "BS", "CF"] as const).map((g) => (
           <div key={g} className="panel">
@@ -666,10 +902,12 @@ function FinancialForm({
         ))}
       </div>
       <Button type="submit" disabled={busy} className="w-full">
-        {busy ? <Loader2 className="size-4 mr-1 animate-spin" /> : null} Save FY{fy} financials
+        {busy ? <Loader2 className="size-4 mr-1 animate-spin" /> : null}
+        {existing ? "Update" : "Save"} {periodType === "annual" ? `FY${fy}` : periodEnd}
       </Button>
     </form>
   );
+
 }
 
 // ─── Document Form (unchanged) ────────────────────────────────────────────────

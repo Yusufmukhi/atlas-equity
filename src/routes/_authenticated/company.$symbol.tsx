@@ -96,6 +96,12 @@ function CompanyPage() {
 
   const { company, statements, documents, agent_outputs } = data;
   const annuals = statements.filter((s) => s.period_type === "annual") as Statement[];
+  const quarterly = statements
+    .filter((s) => s.period_type === "quarterly")
+    .sort((a, b) => (a.period_end < b.period_end ? 1 : -1))
+    .slice(0, 8) // last 8 quarters
+    .reverse();
+
   const metrics = computeMetrics(annuals);
   const cagrs = computeCagrs(annuals);
   const scores = computeScores(metrics, cagrs);
@@ -221,10 +227,12 @@ function CompanyPage() {
             <Tabs defaultValue="ratios" className="w-full">
               <TabsList className="bg-card border border-border">
                 <TabsTrigger value="ratios">Ratios</TabsTrigger>
+                <TabsTrigger value="quarterly">Quarterly ({quarterly.length})</TabsTrigger>
                 <TabsTrigger value="agents">AI Agents</TabsTrigger>
                 <TabsTrigger value="dcf">DCF</TabsTrigger>
                 <TabsTrigger value="docs">Documents ({documents.length})</TabsTrigger>
               </TabsList>
+
 
               <TabsContent value="ratios" className="mt-3">
                 <div className="panel overflow-x-auto">
@@ -267,6 +275,61 @@ function CompanyPage() {
                   </div>
                 </div>
               </TabsContent>
+
+              <TabsContent value="quarterly" className="mt-3">
+                {quarterly.length === 0 ? (
+                  <div className="panel p-8 text-center text-sm text-muted-foreground">
+                    No quarterly data yet. Import a Screener.in Excel — quarters are pulled automatically.
+                  </div>
+                ) : (
+                  <div className="panel overflow-x-auto">
+                    <div className="panel-header"><span>Quarterly Results — Last {quarterly.length} Quarters (₹ Cr)</span></div>
+                    <table className="w-full text-sm">
+                      <thead className="text-xs uppercase tracking-wider text-muted-foreground border-b border-border">
+                        <tr>
+                          <th className="text-left px-3 py-2 font-medium">Metric</th>
+                          {quarterly.map((q) => {
+                            const d = new Date(q.period_end);
+                            const m = d.getMonth() + 1;
+                            const y = d.getFullYear();
+                            const qIdx = m <= 3 ? 4 : m <= 6 ? 1 : m <= 9 ? 2 : 3;
+                            const fyEnd = m <= 3 ? y : y + 1;
+                            return (
+                              <th key={q.id} className="text-right px-3 py-2 font-medium mono whitespace-nowrap">
+                                Q{qIdx} FY{String(fyEnd).slice(-2)}
+                              </th>
+                            );
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody className="mono">
+                        {([
+                          ["Revenue", "revenue"],
+                          ["Operating Profit", "operating_profit"],
+                          ["OPM %", "opm"],
+                          ["Other Income", "other_income"],
+                          ["Depreciation", "depreciation"],
+                          ["Interest", "interest"],
+                          ["PBT", "pbt"],
+                          ["Tax", "tax"],
+                          ["PAT", "pat"],
+                        ] as const).map(([label, key]) => (
+                          <RatioRow
+                            key={key}
+                            label={label}
+                            values={quarterly.map((q) => {
+                              const v = (q.data as { pnl?: Record<string, number> })?.pnl?.[key];
+                              return v != null ? fmtNum(v, key === "opm" ? 1 : 2) : "—";
+                            })}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </TabsContent>
+
+
 
               <TabsContent value="agents" className="mt-3">
                 <div className="grid md:grid-cols-2 gap-3">
