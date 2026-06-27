@@ -96,6 +96,12 @@ function CompanyPage() {
 
   const { company, statements, documents, agent_outputs } = data;
   const annuals = statements.filter((s) => s.period_type === "annual") as Statement[];
+  const quarterly = statements
+    .filter((s) => s.period_type === "quarterly")
+    .sort((a, b) => (a.period_end < b.period_end ? 1 : -1))
+    .slice(0, 8) // last 8 quarters
+    .reverse();
+
   const metrics = computeMetrics(annuals);
   const cagrs = computeCagrs(annuals);
   const scores = computeScores(metrics, cagrs);
