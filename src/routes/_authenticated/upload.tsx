@@ -465,7 +465,7 @@ function ExcelImportForm({
     else toast.error(`${ok} saved, ${fail} failed`);
   };
 
-  const saveOne = async (y: ParsedYear) => {
+  const saveOne = async (y: ParsedPeriod) => {
     setSaving(true);
     try {
       await onSaveYear({
@@ -645,8 +645,8 @@ function PreviewRow({
   accessor,
 }: {
   label: string;
-  years: ParsedYear[];
-  accessor: (y: ParsedYear) => number | undefined;
+  years: ParsedPeriod[];
+  accessor: (y: ParsedPeriod) => number | undefined;
 }) {
   return (
     <tr className="border-b border-border/50 hover:bg-muted/20">
