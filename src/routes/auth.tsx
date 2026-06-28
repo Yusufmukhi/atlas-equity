@@ -30,18 +30,39 @@ function AuthPage() {
     e.preventDefault();
     setLoading(true);
     try {
+      const normalizedEmail = email.trim().toLowerCase();
+
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
-          email,
+        const { data, error } = await supabase.auth.signUp({
+          email: normalizedEmail,
           password,
           options: { emailRedirectTo: `${window.location.origin}/` },
         });
-        if (error) throw error;
-        toast.success("Account created. You can sign in.");
-        setMode("signin");
+        if (error) {
+          if (/already|registered|exists/i.test(error.message)) {
+            setMode("signin");
+            toast.info("This email already has an account. Sign in with your password or use Google.");
+            return;
+          }
+          throw error;
+        }
+
+        if (!data.session) {
+          const { error: signInError } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
+          if (signInError) throw signInError;
+        }
+
+        toast.success("Account created and signed in.");
+        navigate({ to: "/" });
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+        const { error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
+        if (error) {
+          if (/invalid login credentials/i.test(error.message)) {
+            toast.error("Wrong email or password. If you just created the account, use the same password or continue with Google.");
+            return;
+          }
+          throw error;
+        }
         navigate({ to: "/" });
       }
     } catch (err) {
