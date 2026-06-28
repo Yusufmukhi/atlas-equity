@@ -9,6 +9,10 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 
+// TEMP DEBUG — remove after diagnosing env var availability at build time
+console.log("[DEBUG] VITE_SUPABASE_URL at build time:", process.env.VITE_SUPABASE_URL ? "present" : "MISSING");
+console.log("[DEBUG] SUPABASE_URL at build time:", process.env.SUPABASE_URL ? "present" : "MISSING");
+
 export default defineConfig({
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
