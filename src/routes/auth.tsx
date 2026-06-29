@@ -44,6 +44,10 @@ function AuthPage() {
             toast.info("This email already has an account. Sign in with your password or use Google.");
             return;
           }
+          if (/weak|pwned|leaked|compromised|breach/i.test(error.message) || (error as { status?: number }).status === 422) {
+            toast.error("This password appears in known data breaches. Pick a stronger, unique password (mix of letters, numbers, symbols).");
+            return;
+          }
           throw error;
         }
 
