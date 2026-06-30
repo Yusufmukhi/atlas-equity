@@ -15,6 +15,7 @@ import { useState } from "react";
 import { ScoreCard } from "@/components/ScoreCard";
 import { AgentCard } from "@/components/AgentCard";
 import { DcfPanel } from "@/components/DcfPanel";
+import { QuarterlyAnalysis } from "@/components/QuarterlyAnalysis";
 
 export const Route = createFileRoute("/_authenticated/company/$symbol")({
   head: ({ params }) => ({
