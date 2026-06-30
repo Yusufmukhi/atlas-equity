@@ -16,6 +16,7 @@ import { ScoreCard } from "@/components/ScoreCard";
 import { AgentCard } from "@/components/AgentCard";
 import { DcfPanel } from "@/components/DcfPanel";
 import { QuarterlyAnalysis } from "@/components/QuarterlyAnalysis";
+import { PeersPanel } from "@/components/PeersPanel";
 
 export const Route = createFileRoute("/_authenticated/company/$symbol")({
   head: ({ params }) => ({
