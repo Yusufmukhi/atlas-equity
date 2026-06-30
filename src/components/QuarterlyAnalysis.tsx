@@ -55,7 +55,7 @@ export function QuarterlyAnalysis({ quarterly }: { quarterly: Stmt[] }) {
         op,
         pat,
         opm,
-        revYoY: pctChange(rev, prevQ ? undefined : undefined) ?? pctChange(rev, yoyQ ? pnl(yoyQ, "revenue") : undefined),
+        revYoY: pctChange(rev, yoyQ ? pnl(yoyQ, "revenue") : undefined),
         patYoY: pctChange(pat, yoyQ ? pnl(yoyQ, "pat") : undefined),
         opYoY: pctChange(op, yoyQ ? pnl(yoyQ, "operating_profit") : undefined),
         revQoQ: pctChange(rev, prevQ ? pnl(prevQ, "revenue") : undefined),
