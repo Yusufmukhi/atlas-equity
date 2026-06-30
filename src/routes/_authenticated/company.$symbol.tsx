@@ -16,6 +16,7 @@ import { ScoreCard } from "@/components/ScoreCard";
 import { AgentCard } from "@/components/AgentCard";
 import { DcfPanel } from "@/components/DcfPanel";
 import { QuarterlyAnalysis } from "@/components/QuarterlyAnalysis";
+import { PeersPanel } from "@/components/PeersPanel";
 
 export const Route = createFileRoute("/_authenticated/company/$symbol")({
   head: ({ params }) => ({
@@ -227,6 +228,7 @@ function CompanyPage() {
               <TabsList className="bg-card border border-border">
                 <TabsTrigger value="ratios">Ratios</TabsTrigger>
                 <TabsTrigger value="quarterly">Quarterly ({quarterly.length})</TabsTrigger>
+                <TabsTrigger value="peers">Peers</TabsTrigger>
                 <TabsTrigger value="agents">AI Agents</TabsTrigger>
                 <TabsTrigger value="dcf">DCF</TabsTrigger>
                 <TabsTrigger value="docs">Documents ({documents.length})</TabsTrigger>
@@ -277,6 +279,10 @@ function CompanyPage() {
 
               <TabsContent value="quarterly" className="mt-3">
                 <QuarterlyAnalysis quarterly={quarterly} />
+              </TabsContent>
+
+              <TabsContent value="peers" className="mt-3">
+                <PeersPanel company={company} selfStatements={annuals} />
               </TabsContent>
 
 
