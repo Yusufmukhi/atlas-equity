@@ -280,6 +280,10 @@ function CompanyPage() {
                 <QuarterlyAnalysis quarterly={quarterly} />
               </TabsContent>
 
+              <TabsContent value="peers" className="mt-3">
+                <PeersPanel company={company} selfStatements={annuals} />
+              </TabsContent>
+
 
 
               <TabsContent value="agents" className="mt-3">
