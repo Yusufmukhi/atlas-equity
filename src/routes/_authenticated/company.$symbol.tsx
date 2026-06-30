@@ -227,6 +227,7 @@ function CompanyPage() {
               <TabsList className="bg-card border border-border">
                 <TabsTrigger value="ratios">Ratios</TabsTrigger>
                 <TabsTrigger value="quarterly">Quarterly ({quarterly.length})</TabsTrigger>
+                <TabsTrigger value="peers">Peers</TabsTrigger>
                 <TabsTrigger value="agents">AI Agents</TabsTrigger>
                 <TabsTrigger value="dcf">DCF</TabsTrigger>
                 <TabsTrigger value="docs">Documents ({documents.length})</TabsTrigger>
