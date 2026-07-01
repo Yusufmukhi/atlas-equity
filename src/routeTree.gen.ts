@@ -13,6 +13,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedUploadRouteImport } from './routes/_authenticated/upload'
+import { Route as AuthenticatedScreenerRouteImport } from './routes/_authenticated/screener'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedCompanyRouteImport } from './routes/_authenticated/company'
 import { Route as AuthenticatedCompanySymbolRouteImport } from './routes/_authenticated/company.$symbol'
@@ -35,6 +36,11 @@ const IndexRoute = IndexRouteImport.update({
 const AuthenticatedUploadRoute = AuthenticatedUploadRouteImport.update({
   id: '/upload',
   path: '/upload',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedScreenerRoute = AuthenticatedScreenerRouteImport.update({
+  id: '/screener',
+  path: '/screener',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -65,6 +71,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/company': typeof AuthenticatedCompanyRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/screener': typeof AuthenticatedScreenerRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/company/$symbol': typeof AuthenticatedCompanySymbolRouteWithChildren
   '/company/$symbol/report': typeof AuthenticatedCompanySymbolReportRoute
@@ -74,6 +81,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/company': typeof AuthenticatedCompanyRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/screener': typeof AuthenticatedScreenerRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/company/$symbol': typeof AuthenticatedCompanySymbolRouteWithChildren
   '/company/$symbol/report': typeof AuthenticatedCompanySymbolReportRoute
@@ -85,6 +93,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/company': typeof AuthenticatedCompanyRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/screener': typeof AuthenticatedScreenerRoute
   '/_authenticated/upload': typeof AuthenticatedUploadRoute
   '/_authenticated/company/$symbol': typeof AuthenticatedCompanySymbolRouteWithChildren
   '/_authenticated/company/$symbol/report': typeof AuthenticatedCompanySymbolReportRoute
@@ -96,6 +105,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/company'
     | '/dashboard'
+    | '/screener'
     | '/upload'
     | '/company/$symbol'
     | '/company/$symbol/report'
@@ -105,6 +115,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/company'
     | '/dashboard'
+    | '/screener'
     | '/upload'
     | '/company/$symbol'
     | '/company/$symbol/report'
@@ -115,6 +126,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/company'
     | '/_authenticated/dashboard'
+    | '/_authenticated/screener'
     | '/_authenticated/upload'
     | '/_authenticated/company/$symbol'
     | '/_authenticated/company/$symbol/report'
@@ -154,6 +166,13 @@ declare module '@tanstack/react-router' {
       path: '/upload'
       fullPath: '/upload'
       preLoaderRoute: typeof AuthenticatedUploadRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/screener': {
+      id: '/_authenticated/screener'
+      path: '/screener'
+      fullPath: '/screener'
+      preLoaderRoute: typeof AuthenticatedScreenerRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/dashboard': {
@@ -216,12 +235,14 @@ const AuthenticatedCompanyRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedCompanyRoute: typeof AuthenticatedCompanyRouteWithChildren
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedScreenerRoute: typeof AuthenticatedScreenerRoute
   AuthenticatedUploadRoute: typeof AuthenticatedUploadRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCompanyRoute: AuthenticatedCompanyRouteWithChildren,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedScreenerRoute: AuthenticatedScreenerRoute,
   AuthenticatedUploadRoute: AuthenticatedUploadRoute,
 }
 

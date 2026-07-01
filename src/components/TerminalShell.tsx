@@ -39,6 +39,13 @@ export function TerminalShell({ children }: { children: ReactNode }) {
               Coverage
             </Link>
             <Link
+              to="/screener"
+              className="px-2 py-1 rounded text-muted-foreground hover:text-foreground"
+              activeProps={{ className: "px-2 py-1 rounded text-primary" }}
+            >
+              Screener
+            </Link>
+            <Link
               to="/upload"
               className="px-2 py-1 rounded text-muted-foreground hover:text-foreground"
               activeProps={{ className: "px-2 py-1 rounded text-primary" }}
