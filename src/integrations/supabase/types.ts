@@ -476,6 +476,50 @@ export type Database = {
         }
         Relationships: []
       }
+      watchlist: {
+        Row: {
+          company_id: string
+          conviction: Database["public"]["Enums"]["conviction_kind"]
+          created_at: string
+          id: string
+          notes: string | null
+          target_price: number | null
+          thesis: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company_id: string
+          conviction?: Database["public"]["Enums"]["conviction_kind"]
+          created_at?: string
+          id?: string
+          notes?: string | null
+          target_price?: number | null
+          thesis?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company_id?: string
+          conviction?: Database["public"]["Enums"]["conviction_kind"]
+          created_at?: string
+          id?: string
+          notes?: string | null
+          target_price?: number | null
+          thesis?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "watchlist_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -498,6 +542,7 @@ export type Database = {
         | "risk"
         | "valuation"
       app_role: "admin" | "user"
+      conviction_kind: "high" | "medium" | "low" | "watch" | "avoid"
       document_kind:
         | "annual_report"
         | "concall"
@@ -645,6 +690,7 @@ export const Constants = {
         "valuation",
       ],
       app_role: ["admin", "user"],
+      conviction_kind: ["high", "medium", "low", "watch", "avoid"],
       document_kind: [
         "annual_report",
         "concall",
