@@ -60,6 +60,13 @@ export function TerminalShell({ children }: { children: ReactNode }) {
               Journal
             </Link>
             <Link
+              to="/portfolio"
+              className="px-2 py-1 rounded text-muted-foreground hover:text-foreground"
+              activeProps={{ className: "px-2 py-1 rounded text-primary" }}
+            >
+              Portfolio
+            </Link>
+            <Link
               to="/upload"
               className="px-2 py-1 rounded text-muted-foreground hover:text-foreground"
               activeProps={{ className: "px-2 py-1 rounded text-primary" }}

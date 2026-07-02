@@ -289,6 +289,50 @@ export type Database = {
           },
         ]
       }
+      holdings: {
+        Row: {
+          avg_cost: number
+          buy_date: string | null
+          company_id: string
+          created_at: string
+          id: string
+          notes: string | null
+          quantity: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avg_cost: number
+          buy_date?: string | null
+          company_id: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          quantity: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avg_cost?: number
+          buy_date?: string | null
+          company_id?: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          quantity?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "holdings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       peers: {
         Row: {
           company_id: string
