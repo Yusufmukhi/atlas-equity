@@ -60,7 +60,7 @@ function JournalPage() {
   });
 
   const saveMut = useMutation({
-    mutationFn: (input: Parameters<typeof save>[0]["data"]) => save({ data: input }),
+    mutationFn: (input: any) => save({ data: input }),
     onSuccess: () => {
       toast.success("Saved");
       setEditing(null);
