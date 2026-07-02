@@ -455,6 +455,50 @@ export type Database = {
           },
         ]
       }
+      research_notes: {
+        Row: {
+          body: string | null
+          company_id: string | null
+          created_at: string
+          id: string
+          kind: Database["public"]["Enums"]["note_kind"]
+          tags: string[]
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          body?: string | null
+          company_id?: string | null
+          created_at?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["note_kind"]
+          tags?: string[]
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          body?: string | null
+          company_id?: string | null
+          created_at?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["note_kind"]
+          tags?: string[]
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "research_notes_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -551,6 +595,7 @@ export type Database = {
         | "credit_rating"
         | "other"
       exchange_kind: "NSE" | "BSE" | "OTHER"
+      note_kind: "thesis" | "risk" | "catalyst" | "question" | "observation"
       period_kind: "annual" | "quarterly" | "ttm"
       recommendation_kind: "strong_buy" | "buy" | "hold" | "reduce" | "sell"
       report_status: "draft" | "generating" | "ready" | "error"
@@ -700,6 +745,7 @@ export const Constants = {
         "other",
       ],
       exchange_kind: ["NSE", "BSE", "OTHER"],
+      note_kind: ["thesis", "risk", "catalyst", "question", "observation"],
       period_kind: ["annual", "quarterly", "ttm"],
       recommendation_kind: ["strong_buy", "buy", "hold", "reduce", "sell"],
       report_status: ["draft", "generating", "ready", "error"],

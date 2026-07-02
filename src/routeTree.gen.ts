@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedWatchlistRouteImport } from './routes/_authenticated/watchlist'
 import { Route as AuthenticatedUploadRouteImport } from './routes/_authenticated/upload'
 import { Route as AuthenticatedScreenerRouteImport } from './routes/_authenticated/screener'
+import { Route as AuthenticatedJournalRouteImport } from './routes/_authenticated/journal'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedCompanyRouteImport } from './routes/_authenticated/company'
 import { Route as AuthenticatedCompanySymbolRouteImport } from './routes/_authenticated/company.$symbol'
@@ -49,6 +50,11 @@ const AuthenticatedScreenerRoute = AuthenticatedScreenerRouteImport.update({
   path: '/screener',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedJournalRoute = AuthenticatedJournalRouteImport.update({
+  id: '/journal',
+  path: '/journal',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/company': typeof AuthenticatedCompanyRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/journal': typeof AuthenticatedJournalRoute
   '/screener': typeof AuthenticatedScreenerRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
@@ -88,6 +95,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/company': typeof AuthenticatedCompanyRouteWithChildren
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/journal': typeof AuthenticatedJournalRoute
   '/screener': typeof AuthenticatedScreenerRoute
   '/upload': typeof AuthenticatedUploadRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
@@ -101,6 +109,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/company': typeof AuthenticatedCompanyRouteWithChildren
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/journal': typeof AuthenticatedJournalRoute
   '/_authenticated/screener': typeof AuthenticatedScreenerRoute
   '/_authenticated/upload': typeof AuthenticatedUploadRoute
   '/_authenticated/watchlist': typeof AuthenticatedWatchlistRoute
@@ -114,6 +123,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/company'
     | '/dashboard'
+    | '/journal'
     | '/screener'
     | '/upload'
     | '/watchlist'
@@ -125,6 +135,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/company'
     | '/dashboard'
+    | '/journal'
     | '/screener'
     | '/upload'
     | '/watchlist'
@@ -137,6 +148,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/company'
     | '/_authenticated/dashboard'
+    | '/_authenticated/journal'
     | '/_authenticated/screener'
     | '/_authenticated/upload'
     | '/_authenticated/watchlist'
@@ -192,6 +204,13 @@ declare module '@tanstack/react-router' {
       path: '/screener'
       fullPath: '/screener'
       preLoaderRoute: typeof AuthenticatedScreenerRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/journal': {
+      id: '/_authenticated/journal'
+      path: '/journal'
+      fullPath: '/journal'
+      preLoaderRoute: typeof AuthenticatedJournalRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/dashboard': {
@@ -254,6 +273,7 @@ const AuthenticatedCompanyRouteWithChildren =
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedCompanyRoute: typeof AuthenticatedCompanyRouteWithChildren
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedJournalRoute: typeof AuthenticatedJournalRoute
   AuthenticatedScreenerRoute: typeof AuthenticatedScreenerRoute
   AuthenticatedUploadRoute: typeof AuthenticatedUploadRoute
   AuthenticatedWatchlistRoute: typeof AuthenticatedWatchlistRoute
@@ -262,6 +282,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedCompanyRoute: AuthenticatedCompanyRouteWithChildren,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedJournalRoute: AuthenticatedJournalRoute,
   AuthenticatedScreenerRoute: AuthenticatedScreenerRoute,
   AuthenticatedUploadRoute: AuthenticatedUploadRoute,
   AuthenticatedWatchlistRoute: AuthenticatedWatchlistRoute,
