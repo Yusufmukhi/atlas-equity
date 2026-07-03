@@ -7,7 +7,7 @@ import { computeMetrics, computeCagrs, computeScores, fmtNum, fmtPct, fmtX, type
 import { ScoreCard } from "@/components/ScoreCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Printer, ArrowLeft } from "lucide-react";
+import { Printer, ArrowLeft, Download } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/company/$symbol/report")({
   head: ({ params }) => ({ meta: [{ title: `${params.symbol} — Research Report` }] }),
