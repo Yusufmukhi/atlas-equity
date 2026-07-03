@@ -197,3 +197,62 @@ function MetricBox({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+type BuildArgs = {
+  company: { name: string; symbol: string; exchange: string; sector?: string | null };
+  overall: number;
+  rec: string;
+  scores: { financial_health: number; growth: number; cash_flow: number; balance_sheet: number };
+  metrics: ReturnType<typeof computeMetrics>;
+  cagrs: ReturnType<typeof computeCagrs>;
+  agents: Record<string, { agent_type: string; summary?: string | null; score?: number | null; findings?: unknown; risks?: unknown } | undefined>;
+};
+
+function buildMarkdown(a: BuildArgs): string {
+  const last = a.metrics.at(-1);
+  const lines: string[] = [];
+  lines.push(`# ${a.company.name} (${a.company.symbol})`);
+  lines.push(`_${a.company.exchange}${a.company.sector ? ` · ${a.company.sector}` : ""}_`);
+  lines.push("");
+  lines.push(`**Rating:** ${a.rec}  |  **Overall Score:** ${a.overall.toFixed(1)}/10`);
+  lines.push("");
+  lines.push(`## Scorecards`);
+  lines.push(`- Financial Health: ${a.scores.financial_health.toFixed(1)}/10`);
+  lines.push(`- Growth: ${a.scores.growth.toFixed(1)}/10`);
+  lines.push(`- Cash Flow: ${a.scores.cash_flow.toFixed(1)}/10`);
+  lines.push(`- Balance Sheet: ${a.scores.balance_sheet.toFixed(1)}/10`);
+  lines.push("");
+  lines.push(`## Key Metrics`);
+  lines.push(`- Revenue 5Y CAGR: ${fmtPct(a.cagrs.revenue_5y)}`);
+  lines.push(`- PAT 5Y CAGR: ${fmtPct(a.cagrs.pat_5y)}`);
+  lines.push(`- ROE: ${fmtPct(last?.roe)}`);
+  lines.push(`- ROCE: ${fmtPct(last?.roce)}`);
+  lines.push(`- Debt/Equity: ${fmtX(last?.debt_equity)}`);
+  lines.push(`- Interest Coverage: ${fmtX(last?.interest_coverage)}`);
+  lines.push(`- EBITDA Margin: ${fmtPct(last?.ebitda_margin)}`);
+  lines.push(`- FCF (Cr): ${fmtNum(last?.fcf)}`);
+  lines.push("");
+  for (const t of ["business", "financial", "management", "industry", "risk", "valuation"]) {
+    const ag = a.agents[t];
+    if (!ag) continue;
+    lines.push(`## ${labels[t]}`);
+    if (ag.score != null) lines.push(`**Score:** ${ag.score.toFixed(1)}/10`);
+    if (ag.summary) { lines.push(""); lines.push(ag.summary); }
+    const findings = (ag.findings as Array<{ claim: string; evidence: string; source: string }> | null) ?? [];
+    if (findings.length) {
+      lines.push("");
+      lines.push(`### Findings`);
+      findings.forEach((f) => lines.push(`- **${f.claim}** — ${f.evidence} _(source: ${f.source})_`));
+    }
+    const risks = (ag.risks as Array<{ title: string; severity: string; detail: string }> | null) ?? [];
+    if (risks.length) {
+      lines.push("");
+      lines.push(`### Risks`);
+      risks.forEach((r) => lines.push(`- [${r.severity.toUpperCase()}] **${r.title}** — ${r.detail}`));
+    }
+    lines.push("");
+  }
+  lines.push(`---`);
+  lines.push(`_Generated ${new Date().toISOString().slice(0, 10)} · Equity Research Terminal_`);
+  return lines.join("\n");
+}
