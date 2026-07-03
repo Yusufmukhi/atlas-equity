@@ -5,6 +5,48 @@ import { generateText } from "ai";
 import { z } from "zod";
 import { createLovableAiGatewayProvider } from "./ai-gateway.server";
 
+async function extractPdfText(fileBase64: string, mimeType: string, filename: string): Promise<string> {
+  const apiKey = process.env.LOVABLE_API_KEY;
+  if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
+  // Use OpenAI-compatible chat/completions with a `file` content part (Gemini via Lovable Gateway).
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Lovable-API-Key": apiKey,
+    },
+    body: JSON.stringify({
+      model: "google/gemini-3-flash-preview",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Extract the full readable text content of this document. Preserve section headings, tables (as plain text), speaker names and numeric data. Return ONLY the extracted text, no commentary.",
+            },
+            {
+              type: "file",
+              file: {
+                filename,
+                file_data: `data:${mimeType};base64,${fileBase64}`,
+              },
+            },
+          ],
+        },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Gateway extraction failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+  const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const text = json.choices?.[0]?.message?.content ?? "";
+  if (!text.trim()) throw new Error("Gateway returned empty extraction");
+  return text;
+}
+
 const Input = z.object({
   company_id: z.string().uuid(),
   kind: z.enum(["annual_report", "concall", "presentation", "quarterly_result", "credit_rating", "other"]),
