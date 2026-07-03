@@ -17,7 +17,7 @@ import { AgentCard } from "@/components/AgentCard";
 import { DcfPanel } from "@/components/DcfPanel";
 import { QuarterlyAnalysis } from "@/components/QuarterlyAnalysis";
 import { PeersPanel } from "@/components/PeersPanel";
-import { WatchlistTag } from "@/components/WatchlistTag";
+
 
 export const Route = createFileRoute("/_authenticated/company/$symbol")({
   head: ({ params }) => ({
