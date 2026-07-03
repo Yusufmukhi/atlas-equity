@@ -80,36 +80,9 @@ export const uploadDocument = createServerFn({ method: "POST" })
     if (isText) {
       extracted = new TextDecoder().decode(bytes);
     } else if (isPdf) {
-      const apiKey = process.env.LOVABLE_API_KEY;
-      if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
-      const gateway = createLovableAiGatewayProvider(apiKey);
-      try {
-        const result = await generateText({
-          model: gateway("google/gemini-3-flash-preview"),
-          messages: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "Extract the full readable text content of this document. Preserve section headings, tables (as plain text), and numeric data. Return ONLY the extracted text, no commentary.",
-                },
-                {
-                  type: "file",
-                  data: data.file_base64,
-                  mediaType: data.mime_type,
-                  filename: data.title,
-                } as never,
-              ],
-            },
-          ],
-        });
-        extracted = result.text;
-      } catch (e) {
-        console.error("PDF extraction failed", e);
-        extracted = "";
-      }
+      extracted = await extractPdfText(data.file_base64, data.mime_type, data.title);
     }
+
 
     const { data: row, error } = await supabase
       .from("documents")
