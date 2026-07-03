@@ -232,6 +232,7 @@ function CompanyPage() {
                 <TabsTrigger value="peers">Peers</TabsTrigger>
                 <TabsTrigger value="agents">AI Agents</TabsTrigger>
                 <TabsTrigger value="dcf">DCF</TabsTrigger>
+                <TabsTrigger value="concall">Concall Q&amp;A</TabsTrigger>
                 <TabsTrigger value="docs">Documents ({documents.length})</TabsTrigger>
               </TabsList>
 
