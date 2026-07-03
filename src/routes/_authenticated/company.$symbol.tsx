@@ -17,7 +17,8 @@ import { AgentCard } from "@/components/AgentCard";
 import { DcfPanel } from "@/components/DcfPanel";
 import { QuarterlyAnalysis } from "@/components/QuarterlyAnalysis";
 import { PeersPanel } from "@/components/PeersPanel";
-import { WatchlistTag } from "@/components/WatchlistTag";
+import { ConcallChat } from "@/components/ConcallChat";
+
 
 export const Route = createFileRoute("/_authenticated/company/$symbol")({
   head: ({ params }) => ({
@@ -152,7 +153,6 @@ function CompanyPage() {
             <h1 className="text-2xl font-semibold">{company.name}</h1>
           </div>
           <div className="flex items-center gap-2">
-            <WatchlistTag companyId={company.id} />
             <Button
               variant="outline"
               size="sm"
@@ -233,6 +233,7 @@ function CompanyPage() {
                 <TabsTrigger value="peers">Peers</TabsTrigger>
                 <TabsTrigger value="agents">AI Agents</TabsTrigger>
                 <TabsTrigger value="dcf">DCF</TabsTrigger>
+                <TabsTrigger value="concall">Concall Q&amp;A</TabsTrigger>
                 <TabsTrigger value="docs">Documents ({documents.length})</TabsTrigger>
               </TabsList>
 
@@ -309,6 +310,12 @@ function CompanyPage() {
               <TabsContent value="dcf" className="mt-3">
                 <DcfPanel company={company} statements={annuals} />
               </TabsContent>
+
+              <TabsContent value="concall" className="mt-3">
+                <ConcallChat companyId={company.id} companySymbol={company.symbol} />
+              </TabsContent>
+
+
 
               <TabsContent value="docs" className="mt-3">
                 {documents.length === 0 ? (

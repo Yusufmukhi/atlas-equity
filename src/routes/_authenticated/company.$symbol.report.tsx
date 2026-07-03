@@ -7,7 +7,7 @@ import { computeMetrics, computeCagrs, computeScores, fmtNum, fmtPct, fmtX, type
 import { ScoreCard } from "@/components/ScoreCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Printer, ArrowLeft } from "lucide-react";
+import { Printer, ArrowLeft, Download } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/company/$symbol/report")({
   head: ({ params }) => ({ meta: [{ title: `${params.symbol} — Research Report` }] }),
@@ -47,6 +47,17 @@ function ReportPage() {
     overall >= 7.5 ? "BUY" : overall >= 6 ? "ACCUMULATE" : overall >= 4 ? "HOLD" : "REDUCE";
   const recColor = overall >= 6 ? "text-bull" : overall >= 4 ? "text-amber" : "text-bear";
 
+  const downloadMarkdown = () => {
+    const md = buildMarkdown({ company, overall, rec, scores, metrics, cagrs, agents });
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${company.symbol}_research_report.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <TerminalShell>
       <div className="max-w-5xl mx-auto px-6 py-6 print:py-2">
@@ -54,9 +65,14 @@ function ReportPage() {
           <Link to="/company/$symbol" params={{ symbol }} className="text-xs text-muted-foreground hover:text-primary inline-flex items-center gap-1">
             <ArrowLeft className="size-3" /> Back to dashboard
           </Link>
-          <Button size="sm" variant="outline" onClick={() => window.print()}>
-            <Printer className="size-4 mr-1" /> Print / PDF
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={downloadMarkdown}>
+              <Download className="size-4 mr-1" /> Markdown
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => window.print()}>
+              <Printer className="size-4 mr-1" /> Print / PDF
+            </Button>
+          </div>
         </div>
 
         <header className="border-b border-border pb-6 mb-6">
@@ -180,4 +196,63 @@ function MetricBox({ label, value }: { label: string; value: string }) {
       <div className="mono text-lg text-primary mt-1">{value}</div>
     </div>
   );
+}
+
+type BuildArgs = {
+  company: { name: string; symbol: string; exchange: string; sector?: string | null };
+  overall: number;
+  rec: string;
+  scores: { financial_health: number; growth: number; cash_flow: number; balance_sheet: number };
+  metrics: ReturnType<typeof computeMetrics>;
+  cagrs: ReturnType<typeof computeCagrs>;
+  agents: Record<string, { agent_type: string; summary?: string | null; score?: number | null; findings?: unknown; risks?: unknown } | undefined>;
+};
+
+function buildMarkdown(a: BuildArgs): string {
+  const last = a.metrics.at(-1);
+  const lines: string[] = [];
+  lines.push(`# ${a.company.name} (${a.company.symbol})`);
+  lines.push(`_${a.company.exchange}${a.company.sector ? ` · ${a.company.sector}` : ""}_`);
+  lines.push("");
+  lines.push(`**Rating:** ${a.rec}  |  **Overall Score:** ${a.overall.toFixed(1)}/10`);
+  lines.push("");
+  lines.push(`## Scorecards`);
+  lines.push(`- Financial Health: ${a.scores.financial_health.toFixed(1)}/10`);
+  lines.push(`- Growth: ${a.scores.growth.toFixed(1)}/10`);
+  lines.push(`- Cash Flow: ${a.scores.cash_flow.toFixed(1)}/10`);
+  lines.push(`- Balance Sheet: ${a.scores.balance_sheet.toFixed(1)}/10`);
+  lines.push("");
+  lines.push(`## Key Metrics`);
+  lines.push(`- Revenue 5Y CAGR: ${fmtPct(a.cagrs.revenue_5y)}`);
+  lines.push(`- PAT 5Y CAGR: ${fmtPct(a.cagrs.pat_5y)}`);
+  lines.push(`- ROE: ${fmtPct(last?.roe)}`);
+  lines.push(`- ROCE: ${fmtPct(last?.roce)}`);
+  lines.push(`- Debt/Equity: ${fmtX(last?.debt_equity)}`);
+  lines.push(`- Interest Coverage: ${fmtX(last?.interest_coverage)}`);
+  lines.push(`- EBITDA Margin: ${fmtPct(last?.ebitda_margin)}`);
+  lines.push(`- FCF (Cr): ${fmtNum(last?.fcf)}`);
+  lines.push("");
+  for (const t of ["business", "financial", "management", "industry", "risk", "valuation"]) {
+    const ag = a.agents[t];
+    if (!ag) continue;
+    lines.push(`## ${labels[t]}`);
+    if (ag.score != null) lines.push(`**Score:** ${ag.score.toFixed(1)}/10`);
+    if (ag.summary) { lines.push(""); lines.push(ag.summary); }
+    const findings = (ag.findings as Array<{ claim: string; evidence: string; source: string }> | null) ?? [];
+    if (findings.length) {
+      lines.push("");
+      lines.push(`### Findings`);
+      findings.forEach((f) => lines.push(`- **${f.claim}** — ${f.evidence} _(source: ${f.source})_`));
+    }
+    const risks = (ag.risks as Array<{ title: string; severity: string; detail: string }> | null) ?? [];
+    if (risks.length) {
+      lines.push("");
+      lines.push(`### Risks`);
+      risks.forEach((r) => lines.push(`- [${r.severity.toUpperCase()}] **${r.title}** — ${r.detail}`));
+    }
+    lines.push("");
+  }
+  lines.push(`---`);
+  lines.push(`_Generated ${new Date().toISOString().slice(0, 10)} · Equity Research Terminal_`);
+  return lines.join("\n");
 }

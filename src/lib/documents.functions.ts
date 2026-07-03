@@ -87,3 +87,101 @@ export const uploadDocument = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return row;
   });
+
+export const listCompanyDocuments = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ company_id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { data: rows, error } = await context.supabase
+      .from("documents")
+      .select("id, kind, title, fiscal_year, period, mime_type, created_at")
+      .eq("company_id", data.company_id)
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return rows ?? [];
+  });
+
+export const deleteDocument = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase.from("documents").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+const AskInput = z.object({
+  company_id: z.string().uuid(),
+  question: z.string().min(3).max(2000),
+  document_ids: z.array(z.string().uuid()).min(1).max(5),
+});
+
+export const askConcall = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => AskInput.parse(d))
+  .handler(async ({ data, context }) => {
+    const { data: docs, error } = await context.supabase
+      .from("documents")
+      .select("id, title, kind, fiscal_year, period, extracted_text")
+      .eq("company_id", data.company_id)
+      .in("id", data.document_ids);
+    if (error) throw new Error(error.message);
+    if (!docs || docs.length === 0) throw new Error("No documents selected");
+
+    // Chunk & simple keyword-based retrieval to fit context window
+    const questionWords = data.question
+      .toLowerCase()
+      .split(/\W+/)
+      .filter((w) => w.length > 3);
+
+    type Chunk = { docTitle: string; docId: string; idx: number; text: string; score: number };
+    const chunks: Chunk[] = [];
+    const CHUNK_SIZE = 1500;
+    for (const d of docs) {
+      const text = d.extracted_text ?? "";
+      if (!text) continue;
+      const label = `${d.title}${d.period ? ` (${d.period})` : ""}`;
+      for (let i = 0, idx = 0; i < text.length; i += CHUNK_SIZE, idx++) {
+        const t = text.slice(i, i + CHUNK_SIZE);
+        const low = t.toLowerCase();
+        let score = 0;
+        for (const w of questionWords) if (low.includes(w)) score += 1;
+        chunks.push({ docTitle: label, docId: d.id, idx, text: t, score });
+      }
+    }
+    if (chunks.length === 0) throw new Error("Selected documents have no extracted text. Re-upload the PDF.");
+
+    // Top ~20 chunks by score (or first 20 if all zero)
+    chunks.sort((a, b) => b.score - a.score);
+    const top = chunks.slice(0, 20);
+
+    const context_text = top
+      .map((c, i) => `[[${i + 1}]] Source: ${c.docTitle} — chunk ${c.idx}\n${c.text}`)
+      .join("\n\n---\n\n");
+
+    const apiKey = process.env.LOVABLE_API_KEY;
+    if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
+    const gateway = createLovableAiGatewayProvider(apiKey);
+
+    const system = `You are an equity research analyst answering questions grounded ONLY in the provided concall/document excerpts. Rules:
+- Base every claim on the excerpts. If the answer is not present, say "Not found in the provided documents."
+- Cite excerpts inline using bracket markers like [1], [2] matching the [[n]] source labels.
+- Be concise, structured (bullets when useful), and quote exact figures when available.
+- Do not invent numbers, guidance, or names.`;
+
+    const result = await generateText({
+      model: gateway("google/gemini-3-flash-preview"),
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: `Question: ${data.question}\n\n=== SOURCE EXCERPTS ===\n${context_text}`,
+        },
+      ],
+    });
+
+    return {
+      answer: result.text,
+      sources: top.map((c, i) => ({ n: i + 1, docId: c.docId, title: c.docTitle, chunk: c.idx })),
+    };
+  });
