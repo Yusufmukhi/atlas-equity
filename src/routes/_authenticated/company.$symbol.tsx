@@ -152,7 +152,6 @@ function CompanyPage() {
             <h1 className="text-2xl font-semibold">{company.name}</h1>
           </div>
           <div className="flex items-center gap-2">
-            <WatchlistTag companyId={company.id} />
             <Button
               variant="outline"
               size="sm"
