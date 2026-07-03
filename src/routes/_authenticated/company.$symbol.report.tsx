@@ -47,6 +47,17 @@ function ReportPage() {
     overall >= 7.5 ? "BUY" : overall >= 6 ? "ACCUMULATE" : overall >= 4 ? "HOLD" : "REDUCE";
   const recColor = overall >= 6 ? "text-bull" : overall >= 4 ? "text-amber" : "text-bear";
 
+  const downloadMarkdown = () => {
+    const md = buildMarkdown({ company, overall, rec, scores, metrics, cagrs, agents });
+    const blob = new Blob([md], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${company.symbol}_research_report.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <TerminalShell>
       <div className="max-w-5xl mx-auto px-6 py-6 print:py-2">
@@ -54,9 +65,14 @@ function ReportPage() {
           <Link to="/company/$symbol" params={{ symbol }} className="text-xs text-muted-foreground hover:text-primary inline-flex items-center gap-1">
             <ArrowLeft className="size-3" /> Back to dashboard
           </Link>
-          <Button size="sm" variant="outline" onClick={() => window.print()}>
-            <Printer className="size-4 mr-1" /> Print / PDF
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={downloadMarkdown}>
+              <Download className="size-4 mr-1" /> Markdown
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => window.print()}>
+              <Printer className="size-4 mr-1" /> Print / PDF
+            </Button>
+          </div>
         </div>
 
         <header className="border-b border-border pb-6 mb-6">
