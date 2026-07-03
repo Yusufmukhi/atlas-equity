@@ -310,6 +310,12 @@ function CompanyPage() {
                 <DcfPanel company={company} statements={annuals} />
               </TabsContent>
 
+              <TabsContent value="concall" className="mt-3">
+                <ConcallChat companyId={company.id} companySymbol={company.symbol} />
+              </TabsContent>
+
+
+
               <TabsContent value="docs" className="mt-3">
                 {documents.length === 0 ? (
                   <div className="panel p-8 text-center text-sm text-muted-foreground">
