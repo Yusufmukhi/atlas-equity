@@ -137,11 +137,36 @@ export const askConcall = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { data: docs, error } = await context.supabase
       .from("documents")
-      .select("id, title, kind, fiscal_year, period, extracted_text")
+      .select("id, title, kind, fiscal_year, period, extracted_text, file_path, mime_type")
       .eq("company_id", data.company_id)
       .in("id", data.document_ids);
     if (error) throw new Error(error.message);
     if (!docs || docs.length === 0) throw new Error("No documents selected");
+
+    // Lazy re-extract for docs whose extraction previously failed/was empty.
+    for (const d of docs) {
+      if (d.extracted_text && d.extracted_text.trim().length > 20) continue;
+      if (!d.file_path || d.mime_type !== "application/pdf") continue;
+      try {
+        const { data: blob, error: dlErr } = await context.supabase.storage
+          .from("research-docs")
+          .download(d.file_path);
+        if (dlErr || !blob) continue;
+        const buf = new Uint8Array(await blob.arrayBuffer());
+        let binary = "";
+        for (let i = 0; i < buf.length; i++) binary += String.fromCharCode(buf[i]);
+        const b64 = btoa(binary);
+        const text = await extractPdfText(b64, d.mime_type, d.title);
+        d.extracted_text = text;
+        await context.supabase
+          .from("documents")
+          .update({ extracted_text: text })
+          .eq("id", d.id);
+      } catch (e) {
+        console.error("re-extract failed for", d.id, e);
+      }
+    }
+
 
     // Chunk & simple keyword-based retrieval to fit context window
     const questionWords = data.question
