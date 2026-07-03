@@ -5,6 +5,48 @@ import { generateText } from "ai";
 import { z } from "zod";
 import { createLovableAiGatewayProvider } from "./ai-gateway.server";
 
+async function extractPdfText(fileBase64: string, mimeType: string, filename: string): Promise<string> {
+  const apiKey = process.env.LOVABLE_API_KEY;
+  if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
+  // Use OpenAI-compatible chat/completions with a `file` content part (Gemini via Lovable Gateway).
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Lovable-API-Key": apiKey,
+    },
+    body: JSON.stringify({
+      model: "google/gemini-3-flash-preview",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Extract the full readable text content of this document. Preserve section headings, tables (as plain text), speaker names and numeric data. Return ONLY the extracted text, no commentary.",
+            },
+            {
+              type: "file",
+              file: {
+                filename,
+                file_data: `data:${mimeType};base64,${fileBase64}`,
+              },
+            },
+          ],
+        },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Gateway extraction failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+  const json = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
+  const text = json.choices?.[0]?.message?.content ?? "";
+  if (!text.trim()) throw new Error("Gateway returned empty extraction");
+  return text;
+}
+
 const Input = z.object({
   company_id: z.string().uuid(),
   kind: z.enum(["annual_report", "concall", "presentation", "quarterly_result", "credit_rating", "other"]),
@@ -38,36 +80,9 @@ export const uploadDocument = createServerFn({ method: "POST" })
     if (isText) {
       extracted = new TextDecoder().decode(bytes);
     } else if (isPdf) {
-      const apiKey = process.env.LOVABLE_API_KEY;
-      if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
-      const gateway = createLovableAiGatewayProvider(apiKey);
-      try {
-        const result = await generateText({
-          model: gateway("google/gemini-3-flash-preview"),
-          messages: [
-            {
-              role: "user",
-              content: [
-                {
-                  type: "text",
-                  text: "Extract the full readable text content of this document. Preserve section headings, tables (as plain text), and numeric data. Return ONLY the extracted text, no commentary.",
-                },
-                {
-                  type: "file",
-                  data: data.file_base64,
-                  mediaType: data.mime_type,
-                  filename: data.title,
-                } as never,
-              ],
-            },
-          ],
-        });
-        extracted = result.text;
-      } catch (e) {
-        console.error("PDF extraction failed", e);
-        extracted = "";
-      }
+      extracted = await extractPdfText(data.file_base64, data.mime_type, data.title);
     }
+
 
     const { data: row, error } = await supabase
       .from("documents")
@@ -122,11 +137,36 @@ export const askConcall = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { data: docs, error } = await context.supabase
       .from("documents")
-      .select("id, title, kind, fiscal_year, period, extracted_text")
+      .select("id, title, kind, fiscal_year, period, extracted_text, file_path, mime_type")
       .eq("company_id", data.company_id)
       .in("id", data.document_ids);
     if (error) throw new Error(error.message);
     if (!docs || docs.length === 0) throw new Error("No documents selected");
+
+    // Lazy re-extract for docs whose extraction previously failed/was empty.
+    for (const d of docs) {
+      if (d.extracted_text && d.extracted_text.trim().length > 20) continue;
+      if (!d.file_path || d.mime_type !== "application/pdf") continue;
+      try {
+        const { data: blob, error: dlErr } = await context.supabase.storage
+          .from("research-docs")
+          .download(d.file_path);
+        if (dlErr || !blob) continue;
+        const buf = new Uint8Array(await blob.arrayBuffer());
+        let binary = "";
+        for (let i = 0; i < buf.length; i++) binary += String.fromCharCode(buf[i]);
+        const b64 = btoa(binary);
+        const text = await extractPdfText(b64, d.mime_type, d.title);
+        d.extracted_text = text;
+        await context.supabase
+          .from("documents")
+          .update({ extracted_text: text })
+          .eq("id", d.id);
+      } catch (e) {
+        console.error("re-extract failed for", d.id, e);
+      }
+    }
+
 
     // Chunk & simple keyword-based retrieval to fit context window
     const questionWords = data.question
