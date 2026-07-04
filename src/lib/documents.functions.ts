@@ -120,15 +120,86 @@ async function indexDocument(
   return chunks.length;
 }
 
+const KindEnum = z.enum(["annual_report", "concall", "presentation", "quarterly_result", "credit_rating", "other"]);
+
 const Input = z.object({
   company_id: z.string().uuid(),
-  kind: z.enum(["annual_report", "concall", "presentation", "quarterly_result", "credit_rating", "other"]),
-  title: z.string().min(1).max(300),
+  kind: KindEnum.optional(),
+  title: z.string().min(1).max(300).optional(),
   fiscal_year: z.number().int().optional(),
   period: z.string().max(20).optional(),
   mime_type: z.string().max(100),
+  filename: z.string().max(300).optional(),
   file_base64: z.string().min(1),
+  auto_classify: z.boolean().default(true),
 });
+
+const KIND_LABEL: Record<z.infer<typeof KindEnum>, string> = {
+  annual_report: "Annual Report",
+  concall: "Concall Transcript",
+  presentation: "Investor Presentation",
+  quarterly_result: "Quarterly Result",
+  credit_rating: "Credit Rating",
+  other: "Document",
+};
+
+type Classified = {
+  kind: z.infer<typeof KindEnum>;
+  title: string;
+  fiscal_year?: number;
+  period?: string;
+};
+
+async function classifyDocument(sampleText: string, filename: string): Promise<Classified> {
+  const apiKey = process.env.LOVABLE_API_KEY;
+  if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
+  const gateway = createLovableAiGatewayProvider(apiKey);
+  const sample = sampleText.slice(0, 4000);
+  const prompt = `You classify Indian equity research documents. Given a filename and a text sample, output ONLY compact JSON (no markdown fences) with keys:
+- kind: one of ${Object.keys(KIND_LABEL).join(", ")}
+- title: short human title (e.g. "Annual Report FY2026", "Concall Transcript Q4 FY26", "Investor Presentation Q2 FY25", "Credit Rating Report")
+- fiscal_year: Indian fiscal year end as integer YYYY (e.g. 2026 for FY26) or null
+- period: quarter like "Q1", "Q2", "Q3", "Q4", "H1", "H2", or null
+
+Rules:
+- Annual reports → kind=annual_report, period=null.
+- Concall / earnings call / transcript → kind=concall.
+- Investor / analyst deck → kind=presentation.
+- Quarterly results / financial results release → kind=quarterly_result.
+- Credit rating (CRISIL / ICRA / CARE / India Ratings) → kind=credit_rating.
+- Otherwise → kind=other.
+- Detect fiscal year from strings like FY2026, FY26, 2025-26, year ended March 31 2026.
+
+FILENAME: ${filename}
+SAMPLE:
+"""
+${sample}
+"""`;
+
+  const result = await generateText({
+    model: gateway(CHAT_MODEL),
+    messages: [{ role: "user", content: prompt }],
+  });
+  const raw = result.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
+  let parsed: Partial<Classified> & { fiscal_year?: number | null; period?: string | null } = {};
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = {};
+  }
+  const kind = KindEnum.safeParse(parsed.kind).success ? (parsed.kind as z.infer<typeof KindEnum>) : "other";
+  const fyRaw = parsed.fiscal_year;
+  const fiscal_year = typeof fyRaw === "number" && fyRaw > 1990 && fyRaw < 2100 ? fyRaw : undefined;
+  const period = typeof parsed.period === "string" && parsed.period.trim() ? parsed.period.trim() : undefined;
+  let title = typeof parsed.title === "string" && parsed.title.trim() ? parsed.title.trim() : "";
+  if (!title) {
+    const label = KIND_LABEL[kind];
+    const fyPart = fiscal_year ? ` FY${String(fiscal_year).slice(-2)}` : "";
+    const pPart = period ? ` ${period}` : "";
+    title = `${label}${pPart}${fyPart}`.trim();
+  }
+  return { kind, title, fiscal_year, period };
+}
 
 export const uploadDocument = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -137,10 +208,12 @@ export const uploadDocument = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     const isPdf = data.mime_type === "application/pdf";
     const isText = data.mime_type.startsWith("text/") || data.mime_type === "application/json";
+    const originalName = data.filename || data.title || "document";
 
     const bytes = Uint8Array.from(atob(data.file_base64), (c) => c.charCodeAt(0));
-    const filename = `${Date.now()}_${data.title.replace(/[^a-z0-9.-]/gi, "_").slice(0, 60)}`;
-    const filePath = `${userId}/${data.company_id}/${filename}`;
+    const safeName = originalName.replace(/[^a-z0-9.-]/gi, "_").slice(0, 60);
+    const storageName = `${Date.now()}_${safeName}`;
+    const filePath = `${userId}/${data.company_id}/${storageName}`;
     const { error: upErr } = await supabase.storage
       .from("research-docs")
       .upload(filePath, bytes, { contentType: data.mime_type, upsert: false });
@@ -148,17 +221,36 @@ export const uploadDocument = createServerFn({ method: "POST" })
 
     let extracted = "";
     if (isText) extracted = new TextDecoder().decode(bytes);
-    else if (isPdf) extracted = await extractPdfText(data.file_base64, data.mime_type, data.title);
+    else if (isPdf) extracted = await extractPdfText(data.file_base64, data.mime_type, originalName);
+
+    // AI auto-classification when caller didn't provide title/kind
+    let kind: z.infer<typeof KindEnum> = data.kind ?? "other";
+    let title = data.title ?? "";
+    let fiscal_year = data.fiscal_year;
+    let period = data.period;
+    const shouldClassify = data.auto_classify && (!data.title || !data.kind);
+    if (shouldClassify && extracted.trim().length > 30) {
+      try {
+        const c = await classifyDocument(extracted, originalName);
+        if (!data.kind) kind = c.kind;
+        if (!data.title) title = c.title;
+        if (fiscal_year === undefined) fiscal_year = c.fiscal_year;
+        if (period === undefined) period = c.period;
+      } catch (e) {
+        console.error("Auto-classify failed:", e);
+      }
+    }
+    if (!title) title = originalName;
 
     const { data: row, error } = await supabase
       .from("documents")
       .insert({
         user_id: userId,
         company_id: data.company_id,
-        kind: data.kind,
-        title: data.title,
-        fiscal_year: data.fiscal_year,
-        period: data.period,
+        kind,
+        title,
+        fiscal_year,
+        period,
         file_path: filePath,
         mime_type: data.mime_type,
         extracted_text: extracted,
@@ -175,7 +267,7 @@ export const uploadDocument = createServerFn({ method: "POST" })
           id: row.id,
           company_id: data.company_id,
           user_id: userId,
-          title: data.title,
+          title,
           extracted_text: extracted,
         });
       } catch (e) {
@@ -184,6 +276,7 @@ export const uploadDocument = createServerFn({ method: "POST" })
     }
     return { ...row, chunk_count: chunkCount };
   });
+
 
 export const listCompanyDocuments = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -202,10 +295,19 @@ export const deleteDocument = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
+    const { data: doc } = await context.supabase
+      .from("documents")
+      .select("file_path")
+      .eq("id", data.id)
+      .maybeSingle();
     const { error } = await context.supabase.from("documents").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
+    if (doc?.file_path) {
+      await context.supabase.storage.from("research-docs").remove([doc.file_path]).catch(() => {});
+    }
     return { ok: true };
   });
+
 
 const AskInput = z.object({
   company_id: z.string().uuid(),

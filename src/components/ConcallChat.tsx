@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listCompanyDocuments, askConcall } from "@/lib/documents.functions";
+import { listCompanyDocuments, askConcall, deleteDocument } from "@/lib/documents.functions";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Loader2, MessageSquare, FileText, Send } from "lucide-react";
+import { Loader2, MessageSquare, FileText, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+
 
 type Msg = {
   role: "user" | "assistant";
@@ -15,8 +16,10 @@ type Msg = {
 };
 
 export function ConcallChat({ companyId, companySymbol }: { companyId: string; companySymbol: string }) {
+  const qc = useQueryClient();
   const listFn = useServerFn(listCompanyDocuments);
   const askFn = useServerFn(askConcall);
+  const delFn = useServerFn(deleteDocument);
 
   const { data: docs, isLoading } = useQuery({
     queryKey: ["documents", companyId],
@@ -27,6 +30,27 @@ export function ConcallChat({ companyId, companySymbol }: { companyId: string; c
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDelete = async (id: string, title: string) => {
+    if (!confirm(`Delete "${title}"? This removes the document and its embeddings.`)) return;
+    setDeletingId(id);
+    try {
+      await delFn({ data: { id } });
+      setSelected((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
+      qc.invalidateQueries({ queryKey: ["documents", companyId] });
+      toast.success("Document deleted");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
 
   const toggle = (id: string) => {
     setSelected((s) => {
@@ -61,42 +85,56 @@ export function ConcallChat({ companyId, companySymbol }: { companyId: string; c
 
   if (isLoading) return <Skeleton className="h-64" />;
 
-  const concalls = (docs ?? []).filter((d) => d.kind === "concall" || d.kind === "annual_report" || d.kind === "presentation");
+  const concalls = docs ?? [];
 
   return (
     <div className="grid md:grid-cols-[280px_1fr] gap-4">
       {/* Doc picker */}
       <div className="panel">
-        <div className="panel-header"><span>Documents</span></div>
+        <div className="panel-header">
+          <span>Documents</span>
+          <span className="text-[10px] text-muted-foreground">{concalls.length}</span>
+        </div>
         <div className="p-3 space-y-2 max-h-[520px] overflow-auto">
           {concalls.length === 0 ? (
             <div className="text-xs text-muted-foreground text-center py-6">
               <FileText className="size-6 mx-auto mb-2 opacity-50" />
-              No concall / annual report PDFs.<br />
+              No documents yet.<br />
               Upload from the <b>Upload</b> page.
             </div>
           ) : (
             concalls.map((d) => (
-              <label key={d.id} className="flex items-start gap-2 text-xs cursor-pointer hover:bg-secondary/50 rounded p-2">
+              <div key={d.id} className="flex items-start gap-2 text-xs hover:bg-secondary/50 rounded p-2 group">
                 <input
+                  id={`doc-${d.id}`}
                   type="checkbox"
                   checked={selected.has(d.id)}
                   onChange={() => toggle(d.id)}
-                  className="mt-0.5 accent-primary"
+                  className="mt-0.5 accent-primary cursor-pointer"
                 />
-                <div className="min-w-0">
+                <label htmlFor={`doc-${d.id}`} className="min-w-0 flex-1 cursor-pointer">
                   <div className="font-medium truncate">{d.title}</div>
                   <div className="text-[10px] uppercase text-muted-foreground mt-0.5">
                     {d.kind}
-                    {d.fiscal_year ? ` · FY${d.fiscal_year}` : ""}
+                    {d.fiscal_year ? ` · FY${String(d.fiscal_year).slice(-2)}` : ""}
                     {d.period ? ` · ${d.period}` : ""}
                   </div>
-                </div>
-              </label>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(d.id, d.title)}
+                  disabled={deletingId === d.id}
+                  className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition"
+                  aria-label="Delete document"
+                >
+                  {deletingId === d.id ? <Loader2 className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
+                </button>
+              </div>
             ))
           )}
         </div>
       </div>
+
 
       {/* Chat */}
       <div className="panel flex flex-col min-h-[520px]">
