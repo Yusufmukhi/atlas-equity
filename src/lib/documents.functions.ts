@@ -295,10 +295,19 @@ export const deleteDocument = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
+    const { data: doc } = await context.supabase
+      .from("documents")
+      .select("file_path")
+      .eq("id", data.id)
+      .maybeSingle();
     const { error } = await context.supabase.from("documents").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
+    if (doc?.file_path) {
+      await context.supabase.storage.from("research-docs").remove([doc.file_path]).catch(() => {});
+    }
     return { ok: true };
   });
+
 
 const AskInput = z.object({
   company_id: z.string().uuid(),
