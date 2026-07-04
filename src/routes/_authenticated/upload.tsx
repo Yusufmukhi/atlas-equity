@@ -918,6 +918,18 @@ function FinancialForm({
 
 // ─── Document Form (unchanged) ────────────────────────────────────────────────
 
+type UploadStatus = "pending" | "uploading" | "done" | "error";
+type UploadItem = {
+  file: File;
+  status: UploadStatus;
+  title?: string;
+  kind?: string;
+  fiscal_year?: number | null;
+  period?: string | null;
+  chunk_count?: number;
+  error?: string;
+};
+
 function DocumentForm({
   companyId,
   onSubmit,
@@ -925,76 +937,146 @@ function DocumentForm({
   companyId: string;
   onSubmit: (p: {
     company_id: string;
-    kind: "annual_report" | "concall" | "presentation" | "quarterly_result" | "credit_rating" | "other";
-    title: string;
-    fiscal_year?: number;
     mime_type: string;
+    filename: string;
     file_base64: string;
-  }) => Promise<void>;
+  }) => Promise<{ title?: string | null; kind?: string | null; fiscal_year?: number | null; period?: string | null; chunk_count?: number }>;
 }) {
-  const [kind, setKind] = useState<"annual_report" | "concall" | "presentation" | "quarterly_result" | "credit_rating" | "other">("concall");
-  const [title, setTitle] = useState("");
-  const [fy, setFy]     = useState<number | "">(new Date().getFullYear());
-  const [file, setFile] = useState<File | null>(null);
+  const [items, setItems] = useState<UploadItem[]>([]);
   const [busy, setBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file) return;
-    setBusy(true);
-    try {
-      const buf = await file.arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      let bin = "";
-      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-      const b64 = btoa(bin);
-      await onSubmit({
-        company_id: companyId, kind, title: title || file.name,
-        fiscal_year: typeof fy === "number" ? fy : undefined,
-        mime_type: file.type || "application/octet-stream", file_base64: b64,
-      });
-      setFile(null); setTitle("");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setBusy(false);
+  const addFiles = (files: FileList | File[]) => {
+    const arr = Array.from(files).filter(
+      (f) => f.type === "application/pdf" || f.type.startsWith("text/") || f.name.match(/\.(pdf|txt)$/i),
+    );
+    if (arr.length === 0) {
+      toast.error("Please choose PDF or TXT files");
+      return;
     }
+    setItems((prev) => [...prev, ...arr.map<UploadItem>((f) => ({ file: f, status: "pending" }))]);
   };
 
+  const removeItem = (idx: number) => setItems((prev) => prev.filter((_, i) => i !== idx));
+
+  const uploadAll = async () => {
+    if (items.length === 0) return;
+    setBusy(true);
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.status === "done") continue;
+      setItems((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "uploading", error: undefined } : p)));
+      try {
+        const buf = await it.file.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let bin = "";
+        for (let j = 0; j < bytes.length; j++) bin += String.fromCharCode(bytes[j]);
+        const b64 = btoa(bin);
+        const res = await onSubmit({
+          company_id: companyId,
+          filename: it.file.name,
+          mime_type: it.file.type || "application/pdf",
+          file_base64: b64,
+        });
+        setItems((prev) =>
+          prev.map((p, idx) =>
+            idx === i
+              ? {
+                  ...p,
+                  status: "done",
+                  title: res.title ?? undefined,
+                  kind: res.kind ?? undefined,
+                  fiscal_year: res.fiscal_year ?? null,
+                  period: res.period ?? null,
+                  chunk_count: res.chunk_count,
+                }
+              : p,
+          ),
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Upload failed";
+        setItems((prev) => prev.map((p, idx) => (idx === i ? { ...p, status: "error", error: msg } : p)));
+      }
+    }
+    setBusy(false);
+  };
+
+  const kindLabel = (k?: string) =>
+    k === "annual_report" ? "Annual Report"
+    : k === "concall" ? "Concall"
+    : k === "presentation" ? "Presentation"
+    : k === "quarterly_result" ? "Quarterly Result"
+    : k === "credit_rating" ? "Credit Rating"
+    : k ?? "";
+
   return (
-    <form onSubmit={submit} className="panel p-4 space-y-3 max-w-2xl">
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Kind</Label>
-          <Select value={kind} onValueChange={(v) => setKind(v as typeof kind)}>
-            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="annual_report">Annual Report</SelectItem>
-              <SelectItem value="concall">Concall Transcript</SelectItem>
-              <SelectItem value="presentation">Investor Presentation</SelectItem>
-              <SelectItem value="quarterly_result">Quarterly Result</SelectItem>
-              <SelectItem value="credit_rating">Credit Rating</SelectItem>
-              <SelectItem value="other">Other</SelectItem>
-            </SelectContent>
-          </Select>
+    <div className="panel p-4 space-y-3 max-w-2xl">
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          if (e.dataTransfer.files) addFiles(e.dataTransfer.files);
+        }}
+        className={`border-2 border-dashed rounded-lg p-6 text-center transition ${
+          dragging ? "border-primary bg-primary/5" : "border-border"
+        }`}
+      >
+        <UploadCloud className="size-8 mx-auto mb-2 text-muted-foreground" />
+        <p className="text-sm">Drop PDF/TXT files here, or</p>
+        <Label htmlFor="doc-files" className="text-primary hover:underline cursor-pointer text-sm">
+          browse to choose
+        </Label>
+        <Input
+          id="doc-files"
+          type="file"
+          multiple
+          accept=".pdf,.txt,application/pdf,text/plain"
+          className="hidden"
+          onChange={(e) => e.target.files && addFiles(e.target.files)}
+        />
+        <p className="text-[10px] text-muted-foreground mt-2 uppercase tracking-wider">
+          AI auto-detects kind, fiscal year, and title
+        </p>
+      </div>
+
+      {items.length > 0 && (
+        <div className="space-y-1.5">
+          {items.map((it, idx) => (
+            <div key={idx} className="flex items-center gap-2 text-xs bg-secondary/40 rounded px-2 py-1.5">
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{it.title ?? it.file.name}</div>
+                <div className="text-[10px] text-muted-foreground truncate">
+                  {it.file.name} · {(it.file.size / 1024).toFixed(0)} KB
+                  {it.status === "done" && it.kind && (
+                    <> · <span className="text-primary">{kindLabel(it.kind)}</span>
+                      {it.fiscal_year ? ` · FY${String(it.fiscal_year).slice(-2)}` : ""}
+                      {it.period ? ` · ${it.period}` : ""}
+                      {it.chunk_count ? ` · ${it.chunk_count} chunks` : ""}
+                    </>
+                  )}
+                  {it.status === "error" && <span className="text-destructive"> · {it.error}</span>}
+                </div>
+              </div>
+              {it.status === "uploading" && <Loader2 className="size-3.5 animate-spin text-primary" />}
+              {it.status === "done" && <CheckCircle2 className="size-3.5 text-primary" />}
+              {it.status === "error" && <AlertCircle className="size-3.5 text-destructive" />}
+              {!busy && it.status !== "uploading" && (
+                <button type="button" onClick={() => removeItem(idx)} className="text-muted-foreground hover:text-foreground">
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+          ))}
         </div>
-        <div>
-          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Fiscal Year</Label>
-          <Input type="number" value={fy} onChange={(e) => setFy(e.target.value ? parseInt(e.target.value) : "")} className="mono mt-1" />
-        </div>
-      </div>
-      <div>
-        <Label className="text-xs uppercase tracking-wider text-muted-foreground">Title</Label>
-        <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Q3 FY26 Earnings Call" className="mt-1" />
-      </div>
-      <div>
-        <Label className="text-xs uppercase tracking-wider text-muted-foreground">File (PDF or TXT, ≤ 20 MB)</Label>
-        <Input type="file" accept=".pdf,.txt,application/pdf,text/plain" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="mt-1 mono text-xs" />
-      </div>
-      <Button type="submit" disabled={!file || busy} className="w-full">
+      )}
+
+      <Button onClick={uploadAll} disabled={busy || items.length === 0 || items.every((i) => i.status === "done")} className="w-full">
         {busy ? <Loader2 className="size-4 mr-1 animate-spin" /> : <UploadCloud className="size-4 mr-1" />}
-        Upload & extract text
+        Upload &amp; auto-classify with AI
       </Button>
-    </form>
+    </div>
   );
 }
+
