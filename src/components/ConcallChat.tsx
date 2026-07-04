@@ -16,8 +16,10 @@ type Msg = {
 };
 
 export function ConcallChat({ companyId, companySymbol }: { companyId: string; companySymbol: string }) {
+  const qc = useQueryClient();
   const listFn = useServerFn(listCompanyDocuments);
   const askFn = useServerFn(askConcall);
+  const delFn = useServerFn(deleteDocument);
 
   const { data: docs, isLoading } = useQuery({
     queryKey: ["documents", companyId],
@@ -28,6 +30,27 @@ export function ConcallChat({ companyId, companySymbol }: { companyId: string; c
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDelete = async (id: string, title: string) => {
+    if (!confirm(`Delete "${title}"? This removes the document and its embeddings.`)) return;
+    setDeletingId(id);
+    try {
+      await delFn({ data: { id } });
+      setSelected((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
+      qc.invalidateQueries({ queryKey: ["documents", companyId] });
+      toast.success("Document deleted");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
 
   const toggle = (id: string) => {
     setSelected((s) => {
