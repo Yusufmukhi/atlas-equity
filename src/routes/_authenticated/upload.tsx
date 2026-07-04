@@ -383,9 +383,17 @@ function UploadPage() {
               <DocumentForm
                 companyId={selected}
                 onSubmit={async (payload) => {
-                  await upDoc({ data: payload });
+                  const res = await upDoc({ data: payload });
                   qc.invalidateQueries({ queryKey: ["company"] });
-                  toast.success("Document uploaded & text extracted");
+                  qc.invalidateQueries({ queryKey: ["documents"] });
+                  toast.success(`Uploaded: ${res?.title ?? payload.filename}`);
+                  return {
+                    title: res?.title,
+                    kind: res?.kind,
+                    fiscal_year: res?.fiscal_year,
+                    period: res?.period,
+                    chunk_count: (res as { chunk_count?: number })?.chunk_count,
+                  };
                 }}
               />
             </TabsContent>
