@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { listCompanyDocuments, askConcall } from "@/lib/documents.functions";
+import { listCompanyDocuments, askConcall, deleteDocument } from "@/lib/documents.functions";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Loader2, MessageSquare, FileText, Send } from "lucide-react";
+import { Loader2, MessageSquare, FileText, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+
 
 type Msg = {
   role: "user" | "assistant";
