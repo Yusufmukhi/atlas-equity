@@ -268,7 +268,7 @@ export const askConcall = createServerFn({ method: "POST" })
     // Embed the question and run vector similarity search
     const [qEmbed] = await embedBatch([data.question]);
     const { data: matches, error: matchErr } = await supabase.rpc("match_document_chunks", {
-      query_embedding: toVectorLiteral(qEmbed) as unknown as number[],
+      query_embedding: toVectorLiteral(qEmbed) as never,
       doc_ids: data.document_ids,
       match_count: 12,
     });
