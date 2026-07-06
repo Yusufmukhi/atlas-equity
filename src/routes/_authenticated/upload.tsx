@@ -228,7 +228,7 @@ function parseScreenerExcel(file: ArrayBuffer): ParseResult {
     if (reserves    !== null) bs.retained_earnings = reserves;
 
     if (cfo   !== null) cf.cfo   = cfo;
-    if (capex !== null) cf.investing_outflow = capex; // proxy for capex; see note above
+    if (capex !== null) cf.capex = capex; // stored as `capex` for backwards compat; surfaced in UI as "Investing Outflow (proxy for capex)"
     if (fcf   !== null) cf.fcf   = parseFloat(fcf.toFixed(2));
 
     return {
