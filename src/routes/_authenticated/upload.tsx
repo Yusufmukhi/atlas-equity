@@ -50,7 +50,7 @@ const FIELDS = [
   { key: "bs.working_capital", label: "Working Capital", group: "BS" },
   // CF
   { key: "cf.cfo", label: "Cash from Ops", group: "CF" },
-  { key: "cf.capex", label: "Capex", group: "CF" },
+  { key: "cf.capex", label: "Investing Outflow (proxy for capex)", group: "CF" },
   { key: "cf.fcf", label: "Free Cash Flow", group: "CF" },
 ] as const;
 
