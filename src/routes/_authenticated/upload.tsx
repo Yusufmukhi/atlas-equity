@@ -90,35 +90,48 @@ function parseScreenerExcel(file: ArrayBuffer): ParseResult {
   const company_name = String((raw[0] as unknown[])?.[1] ?? "").trim();
   if (!company_name) warnings.push("Could not read company name from Data Sheet B1");
 
-  // Helper: find a row by label in col A (0-indexed)
-  const findRow = (label: string): unknown[] | null => {
+  // Helper: find a row by label in col A (case-insensitive, partial match tolerant).
+  // Screener labels can vary slightly ("Sales" vs "Revenue", trailing "+", etc.), so we
+  // accept a list of candidate labels and match on normalised prefix.
+  const norm = (s: unknown) =>
+    String(s ?? "")
+      .replace(/[+\-\s]+$/g, "")
+      .trim()
+      .toLowerCase();
+
+  const findRow = (labels: string | string[]): unknown[] | null => {
+    const wanted = (Array.isArray(labels) ? labels : [labels]).map((l) => l.toLowerCase());
     for (const row of raw as unknown[][]) {
-      if (String(row[0] ?? "").trim().toLowerCase() === label.toLowerCase()) return row;
+      const cell = norm(row?.[0]);
+      if (!cell) continue;
+      if (wanted.some((w) => cell === w || cell.startsWith(w))) return row;
     }
     return null;
   };
 
-  // P&L dates are row 16 (index 15), BS dates row 56 (55), CF dates row 81 (80)
-  // Columns: data starts at col B (index 1), up to 10 years across B–K
-  const pnlDateRow = raw[15] as unknown[];
-  const bsDateRow = raw[55] as unknown[];
-  const cfDateRow = raw[80] as unknown[];
+  // Track missing labels so the user knows what's incomplete.
+  const need = (row: unknown[] | null, label: string, bucket: string): unknown[] | null => {
+    if (!row) warnings.push(`Could not find "${label}" row — ${bucket} metrics will be incomplete for this filing`);
+    return row;
+  };
 
-  // Use P&L dates as primary; fall back to BS
-  const dateRow = pnlDateRow ?? bsDateRow;
+  // Date rows — try to locate by label; fall back to known indices for older exports.
+  const pnlDateRow =
+    findRow(["report date"]) ??
+    (raw[15] as unknown[] | undefined) ??
+    null;
+  const dateRow = pnlDateRow;
+  if (!dateRow) throw new Error("Could not locate the annual date header row in Data Sheet.");
 
   // Collect column indices where there's a date
   const colEntries: { colIdx: number; fiscal_year: number; period_end: string }[] = [];
-  for (let c = 1; c <= 10; c++) {
+  for (let c = 1; c <= 12; c++) {
     const cell = dateRow?.[c];
     if (!cell) continue;
-    // XLSX parses dates as JS Date objects (cellDates:true) when raw:true is used.
-    // Fallback handling covers serial numbers or stringified dates from edge-case exports.
     let d: Date | null = null;
     if (cell instanceof Date) {
       d = cell;
     } else if (typeof cell === "number") {
-      // Excel serial date (days since 1899-12-30)
       const parsed = XLSX.SSF.parse_date_code(cell);
       if (parsed) d = new Date(parsed.y, parsed.m - 1, parsed.d);
     } else if (typeof cell === "string" && cell.match(/\d{4}/)) {
@@ -126,40 +139,38 @@ function parseScreenerExcel(file: ArrayBuffer): ParseResult {
       if (!isNaN(parsed.getTime())) d = parsed;
     }
     if (!d) continue;
-    const fy = d.getFullYear(); // March year-end → FY = calendar year of March
-    colEntries.push({
-      colIdx: c,
-      fiscal_year: fy,
-      period_end: `${fy}-03-31`,
-    });
+    // Skip quarterly date columns (non-March month) that share the same header row on some exports.
+    const month = d.getMonth() + 1;
+    if (month !== 3) continue;
+    const fy = d.getFullYear();
+    colEntries.push({ colIdx: c, fiscal_year: fy, period_end: `${fy}-03-31` });
   }
 
-  if (colEntries.length === 0) throw new Error("No annual date columns found in Data Sheet row 16.");
+  if (colEntries.length === 0) throw new Error("No annual (March year-end) date columns found in Data Sheet.");
 
-  // P&L rows (row indices are 0-based, Screener rows are 1-based)
-  const salesRow       = raw[16] as unknown[];  // row 17
-  const empCostRow     = raw[21] as unknown[];  // row 22
-  const otherExpRow    = raw[23] as unknown[];  // row 24
-  const otherIncRow    = raw[24] as unknown[];  // row 25
-  const deprRow        = raw[25] as unknown[];  // row 26
-  const interestRow    = raw[26] as unknown[];  // row 27
-  const pbtRow         = raw[27] as unknown[];  // row 28
-  const taxRow         = raw[28] as unknown[];  // row 29
-  const patRow         = raw[29] as unknown[];  // row 30
+  // Locate each line item by label rather than fixed row indices.
+  const salesRow       = need(findRow(["sales", "revenue"]), "Sales", "P&L");
+  const empCostRow     = findRow(["employee cost"]);
+  const otherExpRow    = findRow(["other expenses"]);
+  const otherIncRow    = findRow(["other income"]);
+  const deprRow        = findRow(["depreciation"]);
+  const interestRow    = findRow(["interest"]);
+  const pbtRow         = need(findRow(["profit before tax"]), "Profit before tax", "P&L");
+  const taxRow         = findRow(["tax"]);
+  const patRow         = need(findRow(["net profit"]), "Net profit", "P&L");
 
-  // BS rows
-  const equityCapRow   = raw[56] as unknown[];  // row 57
-  const reservesRow    = raw[57] as unknown[];  // row 58
-  const borrowingsRow  = raw[58] as unknown[];  // row 59
-  const otherLiabRow   = raw[59] as unknown[];  // row 60
-  const totalAssetsRow = raw[65] as unknown[];  // row 66 (asset total)
-  const receivablesRow = raw[66] as unknown[];  // row 67
-  const inventoryRow   = raw[67] as unknown[];  // row 68
-  const cashRow        = raw[68] as unknown[];  // row 69
+  const equityCapRow   = findRow(["equity share capital", "share capital"]);
+  const reservesRow    = findRow(["reserves"]);
+  const borrowingsRow  = findRow(["borrowings"]);
+  const totalAssetsRow = need(findRow(["total"]), "Total (Assets)", "Balance Sheet");
+  const receivablesRow = findRow(["receivables"]);
+  const inventoryRow   = findRow(["inventory"]);
+  const cashRow        = findRow(["cash & equivalents", "cash and equivalents", "cash"]);
 
-  // CF rows
-  const cfoRow         = raw[81] as unknown[];  // row 82
-  const cfiRow         = raw[82] as unknown[];  // row 83 (investing = capex proxy)
+  const cfoRow = need(findRow(["cash from operating activity", "cash flow from operating activity"]),
+    "Cash from Operating Activity", "Cash Flow");
+  const cfiRow = need(findRow(["cash from investing activity", "cash flow from investing activity"]),
+    "Cash from Investing Activity", "Cash Flow");
 
   const years: ParsedPeriod[] = colEntries.map(({ colIdx, fiscal_year, period_end }) => {
     const c = colIdx;
@@ -173,7 +184,7 @@ function parseScreenerExcel(file: ArrayBuffer): ParseResult {
     const tax        = num(taxRow?.[c]);
     const pat        = num(patRow?.[c]);
 
-    // EBITDA = PBT + Tax + Interest + Dep - OtherInc  (Screener style)
+    // EBITDA = PBT + Interest + Dep - OtherInc  (Screener style)
     const pbt        = num(pbtRow?.[c]);
     const ebitda     = (pbt ?? 0) + (dep ?? 0) + (interest ?? 0) - (otherInc ?? 0);
     const ebit       = ebitda - (dep ?? 0);
@@ -181,7 +192,6 @@ function parseScreenerExcel(file: ArrayBuffer): ParseResult {
     const eqCap      = num(equityCapRow?.[c]);
     const reserves   = num(reservesRow?.[c]);
     const borrowings = num(borrowingsRow?.[c]);
-    const otherLiab  = num(otherLiabRow?.[c]);
     const totalAssets = num(totalAssetsRow?.[c]);
     const receivables = num(receivablesRow?.[c]);
     const inventory  = num(inventoryRow?.[c]);
@@ -190,7 +200,8 @@ function parseScreenerExcel(file: ArrayBuffer): ParseResult {
 
     const cfo        = num(cfoRow?.[c]);
     const cfi        = num(cfiRow?.[c]);
-    // Capex = |cash from investing| (simplified — investing is mostly capex for most cos)
+    // Investing outflow as capex proxy. NOTE: this conflates routine capex with M&A /
+    // strategic investments, so FCF here is a floor estimate, not a clean maintenance-capex FCF.
     const capex      = cfi !== null ? Math.abs(cfi) : null;
     const fcf        = cfo !== null && capex !== null ? cfo - capex : null;
 
@@ -201,9 +212,9 @@ function parseScreenerExcel(file: ArrayBuffer): ParseResult {
     if (revenue   !== null) pnl.revenue       = revenue;
     if (empCost   !== null) pnl.employee_cost = empCost;
     if (otherExp  !== null) pnl.other_expenses = otherExp;
-    if (isFinite(ebitda))   pnl.ebitda        = parseFloat(ebitda.toFixed(2));
+    if (isFinite(ebitda) && (pbt !== null || dep !== null || interest !== null)) pnl.ebitda = parseFloat(ebitda.toFixed(2));
     if (dep       !== null) pnl.depreciation  = dep;
-    if (isFinite(ebit))     pnl.ebit          = parseFloat(ebit.toFixed(2));
+    if (isFinite(ebit) && (pbt !== null || interest !== null)) pnl.ebit = parseFloat(ebit.toFixed(2));
     if (interest  !== null) pnl.interest      = interest;
     if (tax       !== null) pnl.tax           = tax;
     if (pat       !== null) pnl.pat           = pat;
@@ -217,7 +228,7 @@ function parseScreenerExcel(file: ArrayBuffer): ParseResult {
     if (reserves    !== null) bs.retained_earnings = reserves;
 
     if (cfo   !== null) cf.cfo   = cfo;
-    if (capex !== null) cf.capex = capex;
+    if (capex !== null) cf.investing_outflow = capex; // proxy for capex; see note above
     if (fcf   !== null) cf.fcf   = parseFloat(fcf.toFixed(2));
 
     return {
