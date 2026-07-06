@@ -272,16 +272,16 @@ function CompanyPage() {
                       <RatioRow label="EBITDA Margin" values={metrics.map((m) => fmtPct(m.ebitda_margin))} />
                       <RatioRow label="Net Margin" values={metrics.map((m) => fmtPct(m.net_margin))} />
                       <RatioRow label="ROE" values={metrics.map((m) => fmtPct(m.roe))} />
-                      <RatioRow label="ROCE" values={metrics.map((m) => fmtPct(m.roce))} />
+                      <RatioRow label="ROCE" tooltip="EBIT ÷ average capital employed (equity + debt), averaged across current & prior year. May differ from management-reported ROCE, which often uses a different EBIT definition or different denominator." values={metrics.map((m) => fmtPct(m.roce))} />
                       <RatioRow label="D/E" values={metrics.map((m) => fmtX(m.debt_equity))} />
                       <RatioRow label="Int. Coverage" values={metrics.map((m) => fmtX(m.interest_coverage))} />
                       <RatioRow label="Current Ratio" values={metrics.map((m) => fmtX(m.current_ratio))} />
                       <RatioRow label="CCC (days)" values={metrics.map((m) => fmtNum(m.ccc_days, 0))} />
-                      <RatioRow label="FCF (Cr)" values={metrics.map((m) => fmtNum(m.fcf))} />
+                      <RatioRow label="FCF (Cr)" tooltip="Capex is approximated as total investing cash outflow, which may include acquisitions and investments (not just maintenance/growth capex). FCF here is a floor estimate." values={metrics.map((m) => fmtNum(m.fcf))} />
                       <RatioRow label="FCF Margin" values={metrics.map((m) => fmtPct(m.fcf_margin))} />
                       <RatioRow label="Cash Conv." values={metrics.map((m) => fmtX(m.cash_conversion))} />
                       <RatioRow label="Altman Z" values={metrics.map((m) => fmtNum(m.altman_z, 2))} />
-                      <RatioRow label="Piotroski F" values={metrics.map((m) => fmtNum(m.piotroski_f, 0))} />
+                      <RatioRow label="Piotroski F" tooltip="Some criteria are skipped when required inputs are missing rather than counted as failing. Values are shown as 'X of Y computable' when fewer than 8 criteria could be evaluated." values={metrics.map((m) => m.piotroski_f == null ? "—" : m.piotroski_computable < 8 ? `${m.piotroski_f} of ${m.piotroski_computable}` : `${m.piotroski_f}`)} />
                     </tbody>
                   </table>
                 </div>
