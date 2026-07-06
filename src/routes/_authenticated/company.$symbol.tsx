@@ -186,10 +186,25 @@ function CompanyPage() {
           <>
             {/* Scorecards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <ScoreCard label="Financial Health" score={scores.financial_health} />
-              <ScoreCard label="Growth" score={scores.growth} />
-              <ScoreCard label="Cash Flow" score={scores.cash_flow} />
-              <ScoreCard label="Balance Sheet" score={scores.balance_sheet} />
+              <ScoreCard label="Financial Health" score={scores.financial_health} tooltip="Blends ROCE (year-avg capital employed) with EBITDA margin. Higher is better." />
+              <ScoreCard
+                label="Growth"
+                score={scores.growth}
+                hint={(() => {
+                  const rev = cagrs.revenue_5y ?? cagrs.revenue_3y;
+                  const pat = cagrs.pat_5y ?? cagrs.pat_3y;
+                  if (rev == null && pat == null) return undefined;
+                  const blended = ((rev ?? 0) + (pat ?? 0)) / 2;
+                  return `${(blended * 100).toFixed(1)}% blended CAGR (rev+PAT)`;
+                })()}
+                tooltip="Score saturates at 10/10 for ~30%+ blended (rev+PAT) CAGR. See the hint for the actual underlying rate — hyper-growth companies show the same 10.0 but different raw CAGRs."
+              />
+              <ScoreCard
+                label="Cash Flow"
+                score={scores.cash_flow}
+                tooltip="Uses FCF where capex is approximated as total cash from investing activities. This may include acquisitions and one-time investments (not just maintenance/growth capex), so the score can look worse in M&A years."
+              />
+              <ScoreCard label="Balance Sheet" score={scores.balance_sheet} tooltip="Inverse D/E, interest coverage, and Altman Z-score combined." />
             </div>
 
             {/* Charts */}
