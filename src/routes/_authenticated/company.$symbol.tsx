@@ -186,10 +186,25 @@ function CompanyPage() {
           <>
             {/* Scorecards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <ScoreCard label="Financial Health" score={scores.financial_health} />
-              <ScoreCard label="Growth" score={scores.growth} />
-              <ScoreCard label="Cash Flow" score={scores.cash_flow} />
-              <ScoreCard label="Balance Sheet" score={scores.balance_sheet} />
+              <ScoreCard label="Financial Health" score={scores.financial_health} tooltip="Blends ROCE (year-avg capital employed) with EBITDA margin. Higher is better." />
+              <ScoreCard
+                label="Growth"
+                score={scores.growth}
+                hint={(() => {
+                  const rev = cagrs.revenue_5y ?? cagrs.revenue_3y;
+                  const pat = cagrs.pat_5y ?? cagrs.pat_3y;
+                  if (rev == null && pat == null) return undefined;
+                  const blended = ((rev ?? 0) + (pat ?? 0)) / 2;
+                  return `${(blended * 100).toFixed(1)}% blended CAGR (rev+PAT)`;
+                })()}
+                tooltip="Score saturates at 10/10 for ~30%+ blended (rev+PAT) CAGR. See the hint for the actual underlying rate — hyper-growth companies show the same 10.0 but different raw CAGRs."
+              />
+              <ScoreCard
+                label="Cash Flow"
+                score={scores.cash_flow}
+                tooltip="Uses FCF where capex is approximated as total cash from investing activities. This may include acquisitions and one-time investments (not just maintenance/growth capex), so the score can look worse in M&A years."
+              />
+              <ScoreCard label="Balance Sheet" score={scores.balance_sheet} tooltip="Inverse D/E, interest coverage, and Altman Z-score combined." />
             </div>
 
             {/* Charts */}
@@ -257,16 +272,16 @@ function CompanyPage() {
                       <RatioRow label="EBITDA Margin" values={metrics.map((m) => fmtPct(m.ebitda_margin))} />
                       <RatioRow label="Net Margin" values={metrics.map((m) => fmtPct(m.net_margin))} />
                       <RatioRow label="ROE" values={metrics.map((m) => fmtPct(m.roe))} />
-                      <RatioRow label="ROCE" values={metrics.map((m) => fmtPct(m.roce))} />
+                      <RatioRow label="ROCE" tooltip="EBIT ÷ average capital employed (equity + debt), averaged across current & prior year. May differ from management-reported ROCE, which often uses a different EBIT definition or different denominator." values={metrics.map((m) => fmtPct(m.roce))} />
                       <RatioRow label="D/E" values={metrics.map((m) => fmtX(m.debt_equity))} />
                       <RatioRow label="Int. Coverage" values={metrics.map((m) => fmtX(m.interest_coverage))} />
                       <RatioRow label="Current Ratio" values={metrics.map((m) => fmtX(m.current_ratio))} />
                       <RatioRow label="CCC (days)" values={metrics.map((m) => fmtNum(m.ccc_days, 0))} />
-                      <RatioRow label="FCF (Cr)" values={metrics.map((m) => fmtNum(m.fcf))} />
+                      <RatioRow label="FCF (Cr)" tooltip="Capex is approximated as total investing cash outflow, which may include acquisitions and investments (not just maintenance/growth capex). FCF here is a floor estimate." values={metrics.map((m) => fmtNum(m.fcf))} />
                       <RatioRow label="FCF Margin" values={metrics.map((m) => fmtPct(m.fcf_margin))} />
                       <RatioRow label="Cash Conv." values={metrics.map((m) => fmtX(m.cash_conversion))} />
                       <RatioRow label="Altman Z" values={metrics.map((m) => fmtNum(m.altman_z, 2))} />
-                      <RatioRow label="Piotroski F" values={metrics.map((m) => fmtNum(m.piotroski_f, 0))} />
+                      <RatioRow label="Piotroski F" tooltip="Some criteria are skipped when required inputs are missing rather than counted as failing. Values are shown as 'X of Y computable' when fewer than 8 criteria could be evaluated." values={metrics.map((m) => m.piotroski_f == null ? "—" : m.piotroski_computable < 8 ? `${m.piotroski_f} of ${m.piotroski_computable}` : `${m.piotroski_f}`)} />
                     </tbody>
                   </table>
                 </div>
@@ -360,10 +375,15 @@ function CompanyPage() {
   );
 }
 
-function RatioRow({ label, values }: { label: string; values: string[] }) {
+function RatioRow({ label, values, tooltip }: { label: string; values: string[]; tooltip?: string }) {
   return (
     <tr className="border-b border-border/40 last:border-0 hover:bg-secondary/30">
-      <td className="text-left px-3 py-1.5 text-foreground font-sans text-xs uppercase tracking-wider">{label}</td>
+      <td className="text-left px-3 py-1.5 text-foreground font-sans text-xs uppercase tracking-wider">
+        <span className="inline-flex items-center gap-1">
+          {label}
+          {tooltip && <span title={tooltip} className="cursor-help text-muted-foreground/70">ⓘ</span>}
+        </span>
+      </td>
       {values.map((v, i) => (
         <td key={i} className="text-right px-3 py-1.5">{v}</td>
       ))}
