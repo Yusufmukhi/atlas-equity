@@ -375,10 +375,15 @@ function CompanyPage() {
   );
 }
 
-function RatioRow({ label, values }: { label: string; values: string[] }) {
+function RatioRow({ label, values, tooltip }: { label: string; values: string[]; tooltip?: string }) {
   return (
     <tr className="border-b border-border/40 last:border-0 hover:bg-secondary/30">
-      <td className="text-left px-3 py-1.5 text-foreground font-sans text-xs uppercase tracking-wider">{label}</td>
+      <td className="text-left px-3 py-1.5 text-foreground font-sans text-xs uppercase tracking-wider">
+        <span className="inline-flex items-center gap-1">
+          {label}
+          {tooltip && <span title={tooltip} className="cursor-help text-muted-foreground/70">ⓘ</span>}
+        </span>
+      </td>
       {values.map((v, i) => (
         <td key={i} className="text-right px-3 py-1.5">{v}</td>
       ))}
