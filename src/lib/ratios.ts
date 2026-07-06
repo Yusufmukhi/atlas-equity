@@ -99,8 +99,18 @@ export function computeMetrics(stmts: Statement[]): Metrics[] {
         : b.total_assets ?? null;
     const avgEquity =
       prev?.bs?.equity != null && equity != null ? (prev.bs.equity + equity) / 2 : equity;
-    const capitalEmployed =
+    // Averaged capital employed for ROCE (matches ROE methodology).
+    // Falls back to year-end if prior-year data is missing.
+    const capitalEmployedNow =
       equity != null && debt != null ? equity + debt : null;
+    const capitalEmployedPrev =
+      prev?.bs?.equity != null && prev?.bs?.total_debt != null
+        ? prev.bs.equity + prev.bs.total_debt
+        : null;
+    const avgCapitalEmployed =
+      capitalEmployedNow != null && capitalEmployedPrev != null
+        ? (capitalEmployedNow + capitalEmployedPrev) / 2
+        : capitalEmployedNow;
 
     const cfo = c.cfo ?? null;
     const capex = c.capex ?? null;
