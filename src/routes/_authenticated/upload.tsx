@@ -623,9 +623,10 @@ function ExcelImportForm({
                       Cash Flow (₹ Cr)
                     </td>
                   </tr>
-                  {(["cfo","capex","fcf"] as const).map((k) => (
-                    <PreviewRow key={k} label={k.toUpperCase()} years={parsed.years} accessor={(y) => y.data.cf?.[k]} />
-                  ))}
+                  {(["cfo","capex","fcf"] as const).map((k) => {
+                    const label = k === "capex" ? "INVESTING OUTFLOW (≈ Capex)" : k.toUpperCase();
+                    return <PreviewRow key={k} label={label} years={parsed.years} accessor={(y) => y.data.cf?.[k]} />;
+                  })}
                   <tr className="border-t border-border">
                     <td className="p-2 text-muted-foreground">Save</td>
                     {parsed.years.map((y) => (
