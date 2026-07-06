@@ -75,6 +75,21 @@ export type Metrics = {
   cash_conversion: number | null;
   altman_z: number | null;
   piotroski_f: number | null;
+  piotroski_computable: number; // number of criteria (0-8) that had inputs available
+};
+  roe: number | null;
+  roce: number | null;
+  roa: number | null;
+  debt_equity: number | null;
+  interest_coverage: number | null;
+  current_ratio: number | null;
+  quick_ratio: number | null;
+  ccc_days: number | null;
+  fcf: number | null;
+  fcf_margin: number | null;
+  cash_conversion: number | null;
+  altman_z: number | null;
+  piotroski_f: number | null;
 };
 
 export function computeMetrics(stmts: Statement[]): Metrics[] {
