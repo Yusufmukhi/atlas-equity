@@ -137,31 +137,54 @@ export function computeMetrics(stmts: Statement[]): Metrics[] {
           1.0 * (revenue / ta)
         : null;
 
-    // Piotroski F — needs prior; approximate
+    // Piotroski F — null-aware. Each criterion contributes to the score numerator
+    // only when the required inputs are available; missing inputs are excluded
+    // from BOTH numerator and denominator (not counted as failing).
     let piotroski: number | null = null;
+    let piotroskiComputable = 0;
     if (prev) {
-      let score = 0;
       const prevP = prev.pnl ?? {};
       const prevB = prev.bs ?? {};
-      const prevC = prev.cf ?? {};
-      if ((pat ?? 0) > 0) score++;
-      if ((cfo ?? 0) > 0) score++;
-      const roaNow = safeDiv(pat, b.total_assets);
-      const roaPrev = safeDiv(prevP.pat, prevB.total_assets);
-      if (roaNow != null && roaPrev != null && roaNow > roaPrev) score++;
-      if (cfo != null && pat != null && cfo > pat) score++;
-      if (debt != null && prevB.total_debt != null && debt < prevB.total_debt) score++;
-      const crNow = safeDiv(b.current_assets, b.current_liabilities);
-      const crPrev = safeDiv(prevB.current_assets, prevB.current_liabilities);
-      if (crNow != null && crPrev != null && crNow > crPrev) score++;
-      // shares dilution not tracked → skip (out of 8)
-      const gmNow = revenue && p.cogs != null ? (revenue - p.cogs) / revenue : null;
-      const gmPrev = prevP.revenue && prevP.cogs != null ? (prevP.revenue - prevP.cogs) / prevP.revenue : null;
-      if (gmNow != null && gmPrev != null && gmNow > gmPrev) score++;
-      const atNow = safeDiv(revenue, b.total_assets);
-      const atPrev = safeDiv(prevP.revenue, prevB.total_assets);
-      if (atNow != null && atPrev != null && atNow > atPrev) score++;
-      piotroski = score;
+      let score = 0;
+      const tally = (ok: boolean | null) => {
+        if (ok === null) return;
+        piotroskiComputable++;
+        if (ok) score++;
+      };
+      // 1. Positive net income
+      tally(pat != null ? pat > 0 : null);
+      // 2. Positive operating cash flow
+      tally(cfo != null ? cfo > 0 : null);
+      // 3. ROA improving
+      {
+        const roaNow = safeDiv(pat, b.total_assets);
+        const roaPrev = safeDiv(prevP.pat, prevB.total_assets);
+        tally(roaNow != null && roaPrev != null ? roaNow > roaPrev : null);
+      }
+      // 4. Accruals: CFO > Net Income
+      tally(cfo != null && pat != null ? cfo > pat : null);
+      // 5. Leverage decreasing
+      tally(debt != null && prevB.total_debt != null ? debt < prevB.total_debt : null);
+      // 6. Current ratio improving
+      {
+        const crNow = safeDiv(b.current_assets, b.current_liabilities);
+        const crPrev = safeDiv(prevB.current_assets, prevB.current_liabilities);
+        tally(crNow != null && crPrev != null ? crNow > crPrev : null);
+      }
+      // 7. Gross margin improving
+      {
+        const gmNow = revenue && p.cogs != null ? (revenue - p.cogs) / revenue : null;
+        const gmPrev = prevP.revenue && prevP.cogs != null ? (prevP.revenue - prevP.cogs) / prevP.revenue : null;
+        tally(gmNow != null && gmPrev != null ? gmNow > gmPrev : null);
+      }
+      // 8. Asset turnover improving
+      {
+        const atNow = safeDiv(revenue, b.total_assets);
+        const atPrev = safeDiv(prevP.revenue, prevB.total_assets);
+        tally(atNow != null && atPrev != null ? atNow > atPrev : null);
+      }
+      // Share dilution criterion (9th classical) — not tracked.
+      piotroski = piotroskiComputable > 0 ? score : null;
     }
 
     return {
@@ -173,7 +196,7 @@ export function computeMetrics(stmts: Statement[]): Metrics[] {
       operating_margin: safeDiv(ebit, revenue),
       net_margin: safeDiv(pat, revenue),
       roe: safeDiv(pat, avgEquity),
-      roce: safeDiv(ebit, capitalEmployed),
+      roce: safeDiv(ebit, avgCapitalEmployed),
       roa: safeDiv(pat, avgAssets),
       debt_equity: safeDiv(debt, equity),
       interest_coverage: safeDiv(ebit, p.interest),
@@ -188,6 +211,7 @@ export function computeMetrics(stmts: Statement[]): Metrics[] {
       cash_conversion: safeDiv(cfo, pat),
       altman_z: z,
       piotroski_f: piotroski,
+      piotroski_computable: piotroskiComputable,
     };
   });
 }
