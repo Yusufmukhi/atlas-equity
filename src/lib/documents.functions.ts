@@ -201,6 +201,68 @@ ${sample}
   return { kind, title, fiscal_year, period };
 }
 
+export type DocSummary = {
+  tldr: string[];
+  guidance: Array<{ metric: string; value: string; period?: string }>;
+  risks: string[];
+  generated_at: string;
+};
+
+async function summarizeExtractedText(text: string, title: string, kind: string): Promise<DocSummary | null> {
+  const apiKey = process.env.LOVABLE_API_KEY;
+  if (!apiKey) return null;
+  const gateway = createLovableAiGatewayProvider(apiKey);
+  // Cap input; sample from start + middle + end for balance
+  const MAX = 24000;
+  let sample = text;
+  if (text.length > MAX) {
+    const slice = Math.floor(MAX / 3);
+    const mid = Math.floor(text.length / 2 - slice / 2);
+    sample = text.slice(0, slice) + "\n\n[...]\n\n" + text.slice(mid, mid + slice) + "\n\n[...]\n\n" + text.slice(-slice);
+  }
+  const prompt = `You are an equity research analyst. Read this ${kind.replace("_", " ")} document titled "${title}" and produce a concise structured summary.
+
+Output ONLY compact JSON (no markdown, no fences) with this exact shape:
+{
+  "tldr": ["bullet 1", "bullet 2", "bullet 3", "bullet 4", "bullet 5"],
+  "guidance": [{"metric": "Revenue Growth", "value": "20-25%", "period": "FY27"}],
+  "risks": ["risk 1", "risk 2", "risk 3"]
+}
+
+Rules:
+- tldr: exactly 5 short (<25 words) bullets covering the most important takeaways for an investor.
+- guidance: forward-looking numeric guidance ONLY from management (revenue, margin, capex, orderbook targets). Include period tag. Skip if none.
+- risks: 3-5 material risks/headwinds/uncertainties mentioned. Skip if none.
+- Facts must come from the document text. Do NOT invent numbers. Preserve units (INR crore, %, etc).
+- Distinguish management statements from analyst hypotheses — only include management's own figures.
+
+DOCUMENT TEXT:
+"""
+${sample}
+"""`;
+
+  try {
+    const result = await generateText({
+      model: gateway(CHAT_MODEL),
+      messages: [{ role: "user", content: prompt }],
+    });
+    const raw = result.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
+    const parsed = JSON.parse(raw) as Partial<DocSummary>;
+    const tldr = Array.isArray(parsed.tldr) ? parsed.tldr.filter((x): x is string => typeof x === "string" && x.trim().length > 0).slice(0, 8) : [];
+    const guidance = Array.isArray(parsed.guidance)
+      ? parsed.guidance
+          .filter((g): g is { metric: string; value: string; period?: string } => !!g && typeof g === "object" && typeof (g as { metric?: unknown }).metric === "string" && typeof (g as { value?: unknown }).value === "string")
+          .slice(0, 12)
+      : [];
+    const risks = Array.isArray(parsed.risks) ? parsed.risks.filter((x): x is string => typeof x === "string" && x.trim().length > 0).slice(0, 8) : [];
+    if (tldr.length === 0 && guidance.length === 0 && risks.length === 0) return null;
+    return { tldr, guidance, risks, generated_at: new Date().toISOString() };
+  } catch (e) {
+    console.error("summarize failed:", e);
+    return null;
+  }
+}
+
 export const uploadDocument = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => Input.parse(d))
