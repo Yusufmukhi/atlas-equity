@@ -549,6 +549,8 @@ STYLE:
         docId: c.document_id,
         title: titleById.get(c.document_id) ?? "Document",
         chunk: c.chunk_index,
+        content: c.content,
+        similarity: c.similarity,
       })),
     };
   });
