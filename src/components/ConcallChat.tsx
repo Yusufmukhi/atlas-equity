@@ -7,6 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Loader2, MessageSquare, FileText, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 
 type Msg = {
@@ -155,10 +157,14 @@ export function ConcallChat({ companyId, companySymbol }: { companyId: string; c
                 className={
                   m.role === "user"
                     ? "inline-block bg-primary/10 text-primary px-3 py-2 rounded text-sm max-w-[85%]"
-                    : "bg-secondary/50 px-3 py-2 rounded text-sm whitespace-pre-wrap"
+                    : "bg-secondary/40 border border-border/50 px-4 py-3 rounded-md text-sm max-w-none prose prose-sm prose-invert prose-headings:mt-3 prose-headings:mb-2 prose-headings:font-semibold prose-h3:text-sm prose-h3:uppercase prose-h3:tracking-wide prose-h3:text-primary prose-p:my-1.5 prose-p:leading-relaxed prose-ul:my-1.5 prose-ul:pl-4 prose-li:my-0.5 prose-li:marker:text-muted-foreground prose-strong:text-foreground prose-strong:font-semibold prose-code:text-primary prose-code:bg-secondary prose-code:px-1 prose-code:rounded prose-code:before:content-none prose-code:after:content-none"
                 }
               >
-                {m.content}
+                {m.role === "assistant" ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                ) : (
+                  m.content
+                )}
               </div>
               {m.sources && m.sources.length > 0 && (
                 <div className="mt-2 text-[10px] text-muted-foreground space-y-0.5">
