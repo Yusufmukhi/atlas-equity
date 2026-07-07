@@ -201,6 +201,68 @@ ${sample}
   return { kind, title, fiscal_year, period };
 }
 
+export type DocSummary = {
+  tldr: string[];
+  guidance: Array<{ metric: string; value: string; period?: string }>;
+  risks: string[];
+  generated_at: string;
+};
+
+async function summarizeExtractedText(text: string, title: string, kind: string): Promise<DocSummary | null> {
+  const apiKey = process.env.LOVABLE_API_KEY;
+  if (!apiKey) return null;
+  const gateway = createLovableAiGatewayProvider(apiKey);
+  // Cap input; sample from start + middle + end for balance
+  const MAX = 24000;
+  let sample = text;
+  if (text.length > MAX) {
+    const slice = Math.floor(MAX / 3);
+    const mid = Math.floor(text.length / 2 - slice / 2);
+    sample = text.slice(0, slice) + "\n\n[...]\n\n" + text.slice(mid, mid + slice) + "\n\n[...]\n\n" + text.slice(-slice);
+  }
+  const prompt = `You are an equity research analyst. Read this ${kind.replace("_", " ")} document titled "${title}" and produce a concise structured summary.
+
+Output ONLY compact JSON (no markdown, no fences) with this exact shape:
+{
+  "tldr": ["bullet 1", "bullet 2", "bullet 3", "bullet 4", "bullet 5"],
+  "guidance": [{"metric": "Revenue Growth", "value": "20-25%", "period": "FY27"}],
+  "risks": ["risk 1", "risk 2", "risk 3"]
+}
+
+Rules:
+- tldr: exactly 5 short (<25 words) bullets covering the most important takeaways for an investor.
+- guidance: forward-looking numeric guidance ONLY from management (revenue, margin, capex, orderbook targets). Include period tag. Skip if none.
+- risks: 3-5 material risks/headwinds/uncertainties mentioned. Skip if none.
+- Facts must come from the document text. Do NOT invent numbers. Preserve units (INR crore, %, etc).
+- Distinguish management statements from analyst hypotheses — only include management's own figures.
+
+DOCUMENT TEXT:
+"""
+${sample}
+"""`;
+
+  try {
+    const result = await generateText({
+      model: gateway(CHAT_MODEL),
+      messages: [{ role: "user", content: prompt }],
+    });
+    const raw = result.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/```$/, "").trim();
+    const parsed = JSON.parse(raw) as Partial<DocSummary>;
+    const tldr = Array.isArray(parsed.tldr) ? parsed.tldr.filter((x): x is string => typeof x === "string" && x.trim().length > 0).slice(0, 8) : [];
+    const guidance = Array.isArray(parsed.guidance)
+      ? parsed.guidance
+          .filter((g): g is { metric: string; value: string; period?: string } => !!g && typeof g === "object" && typeof (g as { metric?: unknown }).metric === "string" && typeof (g as { value?: unknown }).value === "string")
+          .slice(0, 12)
+      : [];
+    const risks = Array.isArray(parsed.risks) ? parsed.risks.filter((x): x is string => typeof x === "string" && x.trim().length > 0).slice(0, 8) : [];
+    if (tldr.length === 0 && guidance.length === 0 && risks.length === 0) return null;
+    return { tldr, guidance, risks, generated_at: new Date().toISOString() };
+  } catch (e) {
+    console.error("summarize failed:", e);
+    return null;
+  }
+}
+
 export const uploadDocument = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: unknown) => Input.parse(d))
@@ -274,7 +336,20 @@ export const uploadDocument = createServerFn({ method: "POST" })
         console.error("Indexing failed:", e);
       }
     }
-    return { ...row, chunk_count: chunkCount };
+
+    // Auto-summary (best-effort, non-blocking on failure)
+    let summary: DocSummary | null = null;
+    if (extracted.trim().length > 200) {
+      try {
+        summary = await summarizeExtractedText(extracted, title, kind);
+        if (summary) {
+          await supabase.from("documents").update({ metadata: { summary } }).eq("id", row.id);
+        }
+      } catch (e) {
+        console.error("summary failed:", e);
+      }
+    }
+    return { ...row, chunk_count: chunkCount, summary };
   });
 
 
@@ -284,11 +359,51 @@ export const listCompanyDocuments = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { data: rows, error } = await context.supabase
       .from("documents")
-      .select("id, kind, title, fiscal_year, period, mime_type, created_at")
+      .select("id, kind, title, fiscal_year, period, mime_type, created_at, metadata")
       .eq("company_id", data.company_id)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return rows ?? [];
+    return (rows ?? []).map((r) => {
+      const meta = r.metadata as { summary?: DocSummary } | null;
+      return { ...r, summary: meta?.summary ?? null };
+    });
+  });
+
+// On-demand summary generation for docs uploaded before auto-summary existed,
+// or when the user wants to regenerate.
+export const generateDocumentSummary = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid(), force: z.boolean().optional() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase } = context;
+    const { data: doc, error } = await supabase
+      .from("documents")
+      .select("id, title, kind, extracted_text, metadata, file_path, mime_type")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!doc) throw new Error("Document not found");
+    const existing = (doc.metadata as { summary?: DocSummary } | null)?.summary;
+    if (existing && !data.force) return existing;
+
+    let text = doc.extracted_text ?? "";
+    if ((!text || text.trim().length < 200) && doc.file_path && doc.mime_type === "application/pdf") {
+      const { data: blob } = await supabase.storage.from("research-docs").download(doc.file_path);
+      if (blob) {
+        const buf = new Uint8Array(await blob.arrayBuffer());
+        let binary = "";
+        for (let i = 0; i < buf.length; i++) binary += String.fromCharCode(buf[i]);
+        const b64 = btoa(binary);
+        text = await extractPdfText(b64, doc.mime_type, doc.title);
+        await supabase.from("documents").update({ extracted_text: text }).eq("id", doc.id);
+      }
+    }
+    if (!text || text.trim().length < 200) throw new Error("Not enough text to summarize");
+    const summary = await summarizeExtractedText(text, doc.title, doc.kind);
+    if (!summary) throw new Error("Summary generation failed");
+    const meta = (doc.metadata as Record<string, unknown> | null) ?? {};
+    await supabase.from("documents").update({ metadata: { ...meta, summary } }).eq("id", doc.id);
+    return summary;
   });
 
 export const deleteDocument = createServerFn({ method: "POST" })
@@ -434,6 +549,8 @@ STYLE:
         docId: c.document_id,
         title: titleById.get(c.document_id) ?? "Document",
         chunk: c.chunk_index,
+        content: c.content,
+        similarity: c.similarity,
       })),
     };
   });
