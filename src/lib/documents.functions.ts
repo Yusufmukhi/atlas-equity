@@ -336,7 +336,20 @@ export const uploadDocument = createServerFn({ method: "POST" })
         console.error("Indexing failed:", e);
       }
     }
-    return { ...row, chunk_count: chunkCount };
+
+    // Auto-summary (best-effort, non-blocking on failure)
+    let summary: DocSummary | null = null;
+    if (extracted.trim().length > 200) {
+      try {
+        summary = await summarizeExtractedText(extracted, title, kind);
+        if (summary) {
+          await supabase.from("documents").update({ metadata: { summary } }).eq("id", row.id);
+        }
+      } catch (e) {
+        console.error("summary failed:", e);
+      }
+    }
+    return { ...row, chunk_count: chunkCount, summary };
   });
 
 
@@ -346,11 +359,51 @@ export const listCompanyDocuments = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { data: rows, error } = await context.supabase
       .from("documents")
-      .select("id, kind, title, fiscal_year, period, mime_type, created_at")
+      .select("id, kind, title, fiscal_year, period, mime_type, created_at, metadata")
       .eq("company_id", data.company_id)
       .order("created_at", { ascending: false });
     if (error) throw new Error(error.message);
-    return rows ?? [];
+    return (rows ?? []).map((r) => {
+      const meta = r.metadata as { summary?: DocSummary } | null;
+      return { ...r, summary: meta?.summary ?? null };
+    });
+  });
+
+// On-demand summary generation for docs uploaded before auto-summary existed,
+// or when the user wants to regenerate.
+export const generateDocumentSummary = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid(), force: z.boolean().optional() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase } = context;
+    const { data: doc, error } = await supabase
+      .from("documents")
+      .select("id, title, kind, extracted_text, metadata, file_path, mime_type")
+      .eq("id", data.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!doc) throw new Error("Document not found");
+    const existing = (doc.metadata as { summary?: DocSummary } | null)?.summary;
+    if (existing && !data.force) return existing;
+
+    let text = doc.extracted_text ?? "";
+    if ((!text || text.trim().length < 200) && doc.file_path && doc.mime_type === "application/pdf") {
+      const { data: blob } = await supabase.storage.from("research-docs").download(doc.file_path);
+      if (blob) {
+        const buf = new Uint8Array(await blob.arrayBuffer());
+        let binary = "";
+        for (let i = 0; i < buf.length; i++) binary += String.fromCharCode(buf[i]);
+        const b64 = btoa(binary);
+        text = await extractPdfText(b64, doc.mime_type, doc.title);
+        await supabase.from("documents").update({ extracted_text: text }).eq("id", doc.id);
+      }
+    }
+    if (!text || text.trim().length < 200) throw new Error("Not enough text to summarize");
+    const summary = await summarizeExtractedText(text, doc.title, doc.kind);
+    if (!summary) throw new Error("Summary generation failed");
+    const meta = (doc.metadata as Record<string, unknown> | null) ?? {};
+    await supabase.from("documents").update({ metadata: { ...meta, summary } }).eq("id", doc.id);
+    return summary;
   });
 
 export const deleteDocument = createServerFn({ method: "POST" })
