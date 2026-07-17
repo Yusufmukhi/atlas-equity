@@ -97,7 +97,7 @@ export function ConcallChat({ companyId, companySymbol }: { companyId: string; c
     setLoading(true);
     try {
       const res = await askFn({
-        data: { company_id: companyId, question: q, document_ids: Array.from(selected) },
+        data: { question: q, document_ids: Array.from(selected) },
       });
       setMessages((m) => [...m, { role: "assistant", content: res.answer, sources: res.sources, question: q }]);
     } catch (e) {
