@@ -425,7 +425,6 @@ export const deleteDocument = createServerFn({ method: "POST" })
 
 
 const AskInput = z.object({
-  company_id: z.string().uuid(),
   question: z.string().min(3).max(2000),
   document_ids: z.array(z.string().uuid()).min(1).max(5),
 });
@@ -436,10 +435,13 @@ export const askConcall = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
 
+    // No company_id filter here on purpose: RLS ("own documents") already
+    // restricts rows to auth.uid() = user_id, and document_ids is an explicit
+    // allowlist, so this safely supports selecting documents that span
+    // multiple companies (e.g. peer comparisons across tickers).
     const { data: docs, error } = await supabase
       .from("documents")
-      .select("id, title, kind, fiscal_year, period, extracted_text, file_path, mime_type")
-      .eq("company_id", data.company_id)
+      .select("id, company_id, title, kind, fiscal_year, period, extracted_text, file_path, mime_type")
       .in("id", data.document_ids);
     if (error) throw new Error(error.message);
     if (!docs || docs.length === 0) throw new Error("No documents selected");
@@ -471,7 +473,7 @@ export const askConcall = createServerFn({ method: "POST" })
         try {
           await indexDocument(supabase, {
             id: d.id,
-            company_id: data.company_id,
+            company_id: d.company_id,
             user_id: userId,
             title: d.title,
             extracted_text: d.extracted_text,
@@ -482,19 +484,48 @@ export const askConcall = createServerFn({ method: "POST" })
       }
     }
 
-    // Embed the question and run vector similarity search
+    // Embed the question, then run similarity search PER document rather than
+    // one global top-12 across all selected documents. A single global top-K
+    // tends to cluster around whichever document is most semantically similar
+    // to the question, silently starving the others of any representation —
+    // bad for "compare across N documents" or "summarize across all concalls"
+    // style questions. Per-document retrieval guarantees every selected
+    // document gets a fair floor of coverage, while total context still
+    // scales down as more documents are selected to stay within budget.
     const [qEmbed] = await embedBatch([data.question]);
-    const { data: matches, error: matchErr } = await supabase.rpc("match_document_chunks", {
-      query_embedding: toVectorLiteral(qEmbed) as never,
-      doc_ids: data.document_ids,
-      match_count: 12,
-    });
-    if (matchErr) throw new Error(`Vector search failed: ${matchErr.message}`);
+    const embeddingLiteral = toVectorLiteral(qEmbed);
+    const perDocCount = Math.max(4, Math.min(10, Math.ceil(30 / docs.length)));
+
+    const perDocResults = await Promise.all(
+      docs.map(async (d) => {
+        const { data: docMatches, error: matchErr } = await supabase.rpc("match_document_chunks", {
+          query_embedding: embeddingLiteral as never,
+          doc_ids: [d.id],
+          match_count: perDocCount,
+        });
+        if (matchErr) throw new Error(`Vector search failed for ${d.title}: ${matchErr.message}`);
+        return docMatches ?? [];
+      }),
+    );
+    const matches = perDocResults.flat().sort((a, b) => b.similarity - a.similarity);
     if (!matches || matches.length === 0) {
       throw new Error("No indexed content found for selected documents. Try re-uploading the PDF.");
     }
 
-    const titleById = new Map(docs.map((d) => [d.id, `${d.title}${d.period ? ` (${d.period})` : ""}`]));
+    const companyIds = Array.from(new Set(docs.map((d) => d.company_id)));
+    const symbolByCompanyId = new Map<string, string>();
+    if (companyIds.length > 1) {
+      const { data: companies } = await supabase.from("companies").select("id, symbol").in("id", companyIds);
+      for (const c of companies ?? []) symbolByCompanyId.set(c.id, c.symbol);
+    }
+    // Prefix with ticker only when the selected documents span more than one
+    // company, so citations like [1] stay unambiguous in peer-comparison asks.
+    const titleById = new Map(
+      docs.map((d) => {
+        const tickerPrefix = companyIds.length > 1 ? `${symbolByCompanyId.get(d.company_id) ?? "?"} — ` : "";
+        return [d.id, `${tickerPrefix}${d.title}${d.period ? ` (${d.period})` : ""}`];
+      }),
+    );
     const top = matches as Array<{ document_id: string; chunk_index: number; content: string; similarity: number }>;
 
     const context_text = top
