@@ -426,7 +426,7 @@ export const deleteDocument = createServerFn({ method: "POST" })
 
 const AskInput = z.object({
   question: z.string().min(3).max(2000),
-  document_ids: z.array(z.string().uuid()).min(1).max(5),
+  document_ids: z.array(z.string().uuid()).min(1).max(8),
 });
 
 export const askConcall = createServerFn({ method: "POST" })
